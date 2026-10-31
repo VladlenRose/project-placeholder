@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Send,
   Sparkles,
+  Users2,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -38,6 +39,7 @@ import {
   type NegotiationSnapshot,
 } from "@/lib/negotiation";
 import { cn } from "@/lib/utils";
+import { getPublicProfiles } from "@/lib/api";
 
 type Edit = {
   key: ParamKey;
@@ -67,6 +69,19 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
   const client = useQueryClient();
   const navigate = useNavigate();
   const contract = useServerFn(createContract);
+
+  // 1. Имена сторон сделки через getPublicProfiles
+  const profiles = useQuery({
+    queryKey: ["public-profiles-chat", buyer.owner_id, seller.owner_id],
+    queryFn: () => getPublicProfiles([buyer.owner_id, seller.owner_id]),
+    staleTime: 60000,
+  });
+  const buyerProfile = profiles.data?.[buyer.owner_id];
+  const sellerProfile = profiles.data?.[seller.owner_id];
+  const buyerName = buyerProfile?.name || "Покупатель";
+  const sellerName = sellerProfile?.name || "Продавец";
+  const myName = side === "buyer" ? buyerName : sellerName;
+  const partnerName = side === "buyer" ? sellerName : buyerName;
 
   const queryKey = ["request-negotiation", buyer.id, seller.id];
   const [edit, setEdit] = useState<Edit | null>(null);
@@ -151,8 +166,8 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
       if (!row) throw new Error("Переговоры недоступны.");
       return contract({ data: { id: row.id, version: row.version } });
     },
-    onSuccess: (res) => {
-      toast.success("Договор успешно сформирован!");
+    onSuccess: () => {
+      toast.success("Договор успешно сформирован и передан в 1С:Предприятие (CommerceML)!");
       navigate({ to: "/dashboard", search: { tab: "documents" } });
     },
     onError: (err) => toast.error(err.message),
@@ -204,13 +219,10 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
   const myCheckedAll = snapshot.conditions.every((c) =>
     side === "buyer" ? c.buyerAccepted : c.sellerAccepted,
   );
-  const otherCheckedAll = snapshot.conditions.every((c) =>
-    side === "buyer" ? c.sellerAccepted : c.buyerAccepted,
-  );
 
   return (
     <div className="flex-1 space-y-6 p-4 sm:p-6 text-base">
-      {/* 1. Сводная карточка торга и ролей сторон */}
+      {/* 1. Сводная карточка торга и ролей сторон с именами */}
       <section className="rounded-2xl border-2 border-brand/20 bg-gradient-to-br from-brand/5 via-background to-card p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 pb-4">
           <div className="flex items-center gap-2.5">
@@ -218,10 +230,16 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
               <Sparkles className="size-5" />
             </span>
             <div>
-              <h2 className="text-lg font-bold tracking-tight text-ink">
-                Параметры сделки и статус торга
-              </h2>
-              <p className="text-xs text-dim sm:text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-bold tracking-tight text-ink">
+                  Параметры сделки и статус торга
+                </h2>
+                <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
+                  <Users2 className="size-3" />
+                  {myName} (Вы) ↔ {partnerName}
+                </span>
+              </div>
+              <p className="text-xs text-dim sm:text-sm mt-0.5">
                 По каждому пункту проводится автономный торг агентов. Подтвердите условия.
               </p>
             </div>
@@ -229,52 +247,83 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
           <AgreementBadge percent={agreementPercent(snapshot)} />
         </div>
 
-        {/* 2. Четкие бейджи ролей участников */}
+        {/* 2. Карточки участников с именами и заявками */}
         <div className="mt-4 grid gap-3 sm:grid-cols-2 text-sm">
-          <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3">
-            <div className="text-xs font-semibold text-blue-600 uppercase tracking-wide">
-              Покупатель {side === "buyer" ? "· Вы" : ""}
+          <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-blue-600 uppercase tracking-wide">
+                Покупатель {side === "buyer" ? "· Вы" : ""}
+              </span>
+              <span className="text-xs text-dim">{buyerProfile?.company || ""}</span>
             </div>
-            <div className="mt-1 font-medium text-ink truncate">{buyer.title}</div>
+            <div className="mt-1 font-bold text-ink text-base">{buyerName}</div>
+            <div className="text-xs text-dim mt-0.5 truncate">Заявка: {buyer.title}</div>
           </div>
-          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
-            <div className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">
-              Продавец {side === "seller" ? "· Вы" : ""}
+
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">
+                Продавец {side === "seller" ? "· Вы" : ""}
+              </span>
+              <span className="text-xs text-dim">{sellerProfile?.company || ""}</span>
             </div>
-            <div className="mt-1 font-medium text-ink truncate">{seller.title}</div>
+            <div className="mt-1 font-bold text-ink text-base">{sellerName}</div>
+            <div className="text-xs text-dim mt-0.5 truncate">Заявка: {seller.title}</div>
           </div>
         </div>
 
-        {/* Сводная яркая таблица всех параметров */}
+        {/* 3. Сводная таблица параметров: Мое условие, Компромисс ботов, 4 статуса */}
         <div className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
           <table className="w-full text-left text-xs sm:text-sm">
             <thead className="border-b border-border bg-foreground/[0.02] text-dim">
               <tr>
                 <th className="py-2.5 pl-3 pr-2 font-medium">№</th>
                 <th className="py-2.5 px-2 font-medium">Параметр</th>
-                <th className="py-2.5 px-2 font-medium">Предложение ботов</th>
+                <th className="py-2.5 px-2 font-medium">Мое условие</th>
+                <th className="py-2.5 px-2 font-medium">Компромисс ботов</th>
                 <th className="py-2.5 pl-2 pr-3 font-medium text-right">Статус</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {snapshot.conditions.map((c, idx) => {
                 const isMyOk = side === "buyer" ? c.buyerAccepted : c.sellerAccepted;
+                const isOtherOk = side === "buyer" ? c.sellerAccepted : c.buyerAccepted;
+                const myParam = snapshot[side][c.key];
+                const range = ["qty", "price", "term"].includes(c.key);
+
+                let statusText = "Ожидает решения";
+                let statusBadge = "bg-muted text-dim border-border";
+                let statusIcon = "⏳";
+
+                if (isMyOk && isOtherOk) {
+                  statusText = "Согласовано обоими";
+                  statusBadge = "bg-emerald-500/10 text-emerald-600 border-emerald-500/20";
+                  statusIcon = "✓";
+                } else if (isMyOk) {
+                  statusText = "Принято вами";
+                  statusBadge = "bg-blue-500/10 text-blue-600 border-blue-500/20";
+                  statusIcon = "✓";
+                } else if (isOtherOk) {
+                  statusText = "Принято партнером";
+                  statusBadge = "bg-purple-500/10 text-purple-600 border-purple-500/20";
+                  statusIcon = "⏳";
+                }
+
                 return (
                   <tr key={c.key} className="hover:bg-foreground/[0.01]">
                     <td className="py-2.5 pl-3 pr-2 font-mono text-xs text-dim">#{idx + 1}</td>
                     <td className="py-2.5 px-2 font-medium text-ink">{LABELS[c.key]}</td>
+                    <td className="py-2.5 px-2 text-ink font-medium">{parameterText(myParam, range)}</td>
                     <td className="py-2.5 px-2 text-ink font-semibold">{c.term?.value ?? "—"}</td>
                     <td className="py-2.5 pl-2 pr-3 text-right">
                       <span
                         className={cn(
-                          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
-                          isMyOk
-                            ? "bg-emerald-500/10 text-emerald-600"
-                            : "bg-amber-500/10 text-amber-600",
+                          "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium",
+                          statusBadge,
                         )}
                       >
-                        {isMyOk ? <Check className="size-3" /> : "⏳"}
-                        {isMyOk ? "Принято вами" : "Ожидает"}
+                        <span>{statusIcon}</span>
+                        <span>{statusText}</span>
                       </span>
                     </td>
                   </tr>
@@ -292,7 +341,8 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
           const shown = current?.preview?.conditions.find((item) => item.key === c.key) ?? c;
           const p = snapshot[side][c.key];
           const range = ["qty", "price", "term"].includes(c.key);
-          const myAccepted = side === "buyer" ? c.buyerAccepted : c.sellerAccepted;
+          const isMyOk = side === "buyer" ? c.buyerAccepted : c.sellerAccepted;
+          const isOtherOk = side === "buyer" ? c.sellerAccepted : c.buyerAccepted;
           const color = (PARAM_COLORS as Record<string, { badge: string; border: string }>)[c.key] ?? {
             badge: "bg-muted text-foreground border-border",
             border: "border-border",
@@ -328,11 +378,40 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
 
               <p className="mt-2 text-xs sm:text-sm text-dim">{BENEFIT[c.key]}</p>
 
+              {/* 4. Разворачивающийся диалог ботов по этому параметру */}
+              <details className="group mt-3 rounded-lg border border-border/80 bg-foreground/[0.015] p-3 text-xs sm:text-sm">
+                <summary className="flex cursor-pointer list-none items-center justify-between font-medium text-dim hover:text-ink">
+                  <div className="flex items-center gap-1.5">
+                    <Bot className="size-4 text-brand" />
+                    <span>Диалог ботов по параметру «{LABELS[c.key]}»</span>
+                  </div>
+                  <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="mt-2.5 space-y-1.5 border-t border-border/60 pt-2 text-ink">
+                  <div className="flex items-start gap-2">
+                    <span className="font-semibold text-blue-600">Бот покупателя:</span>
+                    <span className="text-dim">
+                      Запросил {parameterText(snapshot.buyer[c.key], range)}.
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="font-semibold text-emerald-600">Бот продавца:</span>
+                    <span className="text-dim">
+                      Предложил {parameterText(snapshot.seller[c.key], range)}.
+                    </span>
+                  </div>
+                  <div className="mt-2 rounded bg-brand/5 p-2 text-xs font-medium text-ink">
+                    <span className="text-brand font-semibold">Компромисс ботов:</span>{" "}
+                    {shown.term?.rationale || `Автономный торг сопоставил приоритеты и установил: ${shown.term?.value ?? "—"}`}
+                  </div>
+                </div>
+              </details>
+
               {/* Стороны сделки */}
               <div className="mt-3 grid gap-3 rounded-lg bg-foreground/[0.02] p-3 text-xs sm:text-sm sm:grid-cols-2">
                 <div>
                   <div className="font-semibold text-dim">
-                    Покупатель {side === "buyer" ? "(вы)" : ""}
+                    Покупатель ({buyerName}) {side === "buyer" ? "· Вы" : ""}
                   </div>
                   <div className="mt-0.5 text-base font-medium text-ink">
                     {parameterText(snapshot.buyer[c.key], range)}
@@ -340,7 +419,7 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
                 </div>
                 <div>
                   <div className="font-semibold text-dim">
-                    Продавец {side === "seller" ? "(вы)" : ""}
+                    Продавец ({sellerName}) {side === "seller" ? "· Вы" : ""}
                   </div>
                   <div className="mt-0.5 text-base font-medium text-ink">
                     {parameterText(snapshot.seller[c.key], range)}
@@ -350,7 +429,7 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
 
               {/* Итог согласования ботов */}
               <div className="mt-4 rounded-xl border border-border/80 bg-foreground/[0.015] p-3.5">
-                <div className="text-xs font-medium text-dim">Предложение ботов</div>
+                <div className="text-xs font-medium text-dim">Компромисс ботов</div>
                 <div className="mt-1 text-base sm:text-lg font-bold text-ink">
                   {shown.term?.value ?? "Условие пока не выработано"}
                 </div>
@@ -361,19 +440,22 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
                 )}
               </div>
 
-              {/* Действия участника по этому пункту */}
+              {/* Статус согласования с 4 состояниями */}
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3 pt-2">
-                <div className="text-xs sm:text-sm text-dim">
-                  Статус:{" "}
-                  {myAccepted ? (
-                    <span className="font-semibold text-emerald-600">✓ Вы приняли пункт</span>
+                <div className="text-xs sm:text-sm">
+                  {isMyOk && isOtherOk ? (
+                    <span className="font-semibold text-emerald-600">✓ Согласовано обеими сторонами</span>
+                  ) : isMyOk ? (
+                    <span className="font-medium text-blue-600">✓ Принято вами (партнер еще не подтвердил)</span>
+                  ) : isOtherOk ? (
+                    <span className="font-medium text-purple-600">⏳ Принято {partnerName} (ждет вашего подтверждения)</span>
                   ) : (
                     <span className="font-medium text-amber-600">Ожидает вашего подтверждения</span>
                   )}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  {!myAccepted && (
+                  {!isMyOk && (
                     <Button
                       size="sm"
                       className="bg-emerald-600 text-white hover:bg-emerald-700"
@@ -468,7 +550,7 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
         })}
       </div>
 
-      {/* 4. Краткий пересказ ИИ и аккордеон с ботами */}
+      {/* Краткий пересказ ИИ и общий лог */}
       <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -498,7 +580,6 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
           </p>
         )}
 
-        {/* Раскрывающийся лог диалога ботов */}
         <details className="group mt-3 border-t border-border/80 pt-3">
           <summary className="flex cursor-pointer list-none items-center justify-between text-xs sm:text-sm font-medium text-dim hover:text-ink">
             <span>Показать полный лог согласования условий ботами</span>
@@ -515,7 +596,7 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
         </details>
       </section>
 
-      {/* 5. Финальный блок: Предложить условия / Оформить договор */}
+      {/* Финальный блок: Предложить условия / Оформить договор */}
       <section className="sticky bottom-4 z-20 rounded-2xl border-2 border-brand bg-card p-5 shadow-lg">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
