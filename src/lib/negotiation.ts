@@ -3,7 +3,7 @@ import { agreementPercent } from "./agreement";
 import { bargainParameter, KEYS, withDefaults, type LogLine, type Param, type ParamKey, type Params, type Side, type Term } from "./bargain";
 
 export type Condition = { key: ParamKey; term: Term | null; log: LogLine[]; buyerAccepted: boolean; sellerAccepted: boolean };
-export type NegotiationSnapshot = { buyer: Params; seller: Params; conditions: Condition[]; percent?: number; scoringVersion?: number };
+export type NegotiationSnapshot = { buyer: Params; seller: Params; conditions: Condition[]; finalProposals?: { buyer: boolean; seller: boolean }; percent?: number; scoringVersion?: number };
 
 export function scored(snapshot: NegotiationSnapshot): NegotiationSnapshot {
   return { ...snapshot, percent: agreementPercent(snapshot), scoringVersion: 1 };
@@ -35,7 +35,7 @@ export function proposeCondition(snapshot: NegotiationSnapshot, side: Side, key:
   const param: Param = { ...snapshot[side][key], ...values };
   if (param.ignore) throw new Error("Параметр помечен как неважный. Сначала измените это в заявке.");
   const next = { ...snapshot, [side]: { ...snapshot[side], [key]: param } };
-  return scored({ ...next, conditions: snapshot.conditions.map((c) => c.key === key ? { key, ...bargainParameter(key, next.buyer[key], next.seller[key]), buyerAccepted: false, sellerAccepted: false } : c) });
+  return scored({ ...next, finalProposals: { buyer: false, seller: false }, conditions: snapshot.conditions.map((c) => c.key === key ? { key, ...bargainParameter(key, next.buyer[key], next.seller[key]), buyerAccepted: false, sellerAccepted: false } : c) });
 }
 
 export function acceptCondition(snapshot: NegotiationSnapshot, side: Side, key: ParamKey): NegotiationSnapshot {
@@ -47,4 +47,18 @@ export function acceptCondition(snapshot: NegotiationSnapshot, side: Side, key: 
 export function humansAgreed(snapshot: NegotiationSnapshot) {
   const active = snapshot.conditions.filter((c) => c.term);
   return active.length > 0 && active.every((c) => c.buyerAccepted && c.sellerAccepted);
+}
+
+export function participantReady(snapshot: NegotiationSnapshot, side: Side) {
+  const active = snapshot.conditions.filter((c) => c.term);
+  return active.length > 0 && active.every((c) => side === "buyer" ? c.buyerAccepted : c.sellerAccepted);
+}
+
+export function proposeAllConditions(snapshot: NegotiationSnapshot, side: Side): NegotiationSnapshot {
+  if (!participantReady(snapshot, side)) throw new Error("Сначала подтвердите каждый пункт.");
+  return { ...snapshot, finalProposals: { buyer: snapshot.finalProposals?.buyer ?? false, seller: snapshot.finalProposals?.seller ?? false, [side]: true } };
+}
+
+export function contractReady(snapshot: NegotiationSnapshot) {
+  return humansAgreed(snapshot) && snapshot.finalProposals?.buyer === true && snapshot.finalProposals?.seller === true;
 }
