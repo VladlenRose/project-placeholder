@@ -723,3 +723,54 @@ function parameterText(
   }
   return `${min || max || "—"}${unit}`;
 }
+
+// Генератор реалистичного 4-шагового диалога ботов (А1 -> Б1 -> А2 -> Б2)
+function generateBotDialogue(
+  key: ParamKey,
+  buyerParam: Param,
+  sellerParam: Param,
+  termValue: string | undefined,
+  range: boolean,
+  buyerName: string,
+  sellerName: string
+) {
+  const label = LABELS[key].toLowerCase();
+  const bText = parameterText(buyerParam, range);
+  const sText = parameterText(sellerParam, range);
+  const comp = termValue || "согласованное значение";
+
+  if (key === "price") {
+    return [
+      { step: "А1", author: `Бот покупателя (${buyerName})`, role: "buyer", text: `Начальный запрос: целевой бюджет ${bText}. Приоритет параметра ${buyerParam.priority}%.` },
+      { step: "Б1", author: `Бот продавца (${sellerName})`, role: "seller", text: `Базовый прайс-лист: ${sText}. Ниже себестоимости отгрузить не можем, учитывая логистику.` },
+      { step: "А2", author: `Бот покупателя (${buyerName})`, role: "buyer", text: `Готовы гарантировать быстрый объём и платёжную дисциплину при встречной скидке.` },
+      { step: "Б2", author: `Бот продавца (${sellerName})`, role: "seller", text: `Учитывая условия, сходимся на компромиссе ${comp}. Фиксируем в договоре.` },
+    ];
+  }
+
+  if (key === "term") {
+    return [
+      { step: "А1", author: `Бот покупателя (${buyerName})`, role: "buyer", text: `Требуемый срок поставки: ${bText}. Важно для соблюдения нашего производственного цикла.` },
+      { step: "Б1", author: `Бот продавца (${sellerName})`, role: "seller", text: `Стандартный цикл сборки и отгрузки составляет ${sText}.` },
+      { step: "А2", author: `Бот покупателя (${buyerName})`, role: "buyer", text: `Готовы согласовать поэтапную приёмку, если сократите предельный срок.` },
+      { step: "Б2", author: `Бот продавца (${sellerName})`, role: "seller", text: `Оптимизируем логистику склада: итоговый срок поставки — ${comp}.` },
+    ];
+  }
+
+  if (key === "qty") {
+    return [
+      { step: "А1", author: `Бот покупателя (${buyerName})`, role: "buyer", text: `Планируемый объём закупки: ${bText}.` },
+      { step: "Б1", author: `Бот продавца (${sellerName})`, role: "seller", text: `Минимальная рентабельная партия у поставщика: ${sText}.` },
+      { step: "А2", author: `Бот покупателя (${buyerName})`, role: "buyer", text: `Сверяем складские остатки: можем скорректировать размер партии.` },
+      { step: "Б2", author: `Бот продавца (${sellerName})`, role: "seller", text: `Договорились: фиксируем партию в размере ${comp}.` },
+    ];
+  }
+
+  // Для условий оплаты, доставки, гарантии
+  return [
+    { step: "А1", author: `Бот покупателя (${buyerName})`, role: "buyer", text: `По параметру «${label}» запрашиваем: «${bText}».` },
+    { step: "Б1", author: `Бот продавца (${sellerName})`, role: "seller", text: `Регламентная позиция поставщика: «${sText}».` },
+    { step: "А2", author: `Бот покупателя (${buyerName})`, role: "buyer", text: `Изучили регламент: готовы пойти на уступку при согласии со встречным пунктом.` },
+    { step: "Б2", author: `Бот продавца (${sellerName})`, role: "seller", text: `Взаимный интерес подтверждён. Утверждаем вариант «${comp}».` },
+  ];
+}
