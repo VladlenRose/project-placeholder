@@ -376,34 +376,55 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
 
               <p className="mt-2 text-xs sm:text-sm text-dim">{BENEFIT[c.key]}</p>
 
-              {/* 4. Разворачивающийся диалог ботов по этому параметру */}
-              <details className="group mt-3 rounded-lg border border-border/80 bg-foreground/[0.015] p-3 text-xs sm:text-sm">
+              {/* Разворачивающийся реалистичный торг ботов (А1 -> Б1 -> А2 -> Б2) */}
+              <details className="group mt-3 rounded-xl border border-border/80 bg-foreground/[0.015] p-3 text-xs sm:text-sm">
                 <summary className="flex cursor-pointer list-none items-center justify-between font-medium text-dim hover:text-ink">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-2">
                     <Bot className="size-4 text-brand" />
-                    <span>Диалог ботов по параметру «{LABELS[c.key]}»</span>
+                    <span className="font-semibold text-ink">Ход торга ботов: {LABELS[c.key]} (4 раунда)</span>
                   </div>
                   <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
                 </summary>
-                <div className="mt-2.5 space-y-1.5 border-t border-border/60 pt-2 text-ink">
-                  <div className="flex items-start gap-2">
-                    <span className="font-semibold text-blue-600">Бот покупателя:</span>
-                    <span className="text-dim">
-                      Запросил {parameterText(snapshot.buyer[c.key], range)}.
-                    </span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="font-semibold text-emerald-600">Бот продавца:</span>
-                    <span className="text-dim">
-                      Предложил {parameterText(snapshot.seller[c.key], range)}.
-                    </span>
-                  </div>
-                  <div className="mt-2 rounded bg-brand/5 p-2 text-xs font-medium text-ink">
-                    <span className="text-brand font-semibold">Компромисс ботов:</span>{" "}
-                    {shown.term?.rationale || `Автономный торг сопоставил приоритеты и установил: ${shown.term?.value ?? "—"}`}
+              
+                <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
+                  {generateBotDialogue(
+                    c.key,
+                    snapshot.buyer[c.key],
+                    snapshot.seller[c.key],
+                    shown.term?.value,
+                    range,
+                    buyerName,
+                    sellerName
+                  ).map((m, idx) => (
+                    <div
+                      key={idx}
+                      className={cn(
+                        "flex items-start gap-2.5 rounded-lg p-2.5 transition-colors",
+                        m.role === "buyer" ? "bg-blue-500/5 border border-blue-500/10" : "bg-emerald-500/5 border border-emerald-500/10"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "grid size-5 shrink-0 place-items-center rounded-full text-[10px] font-bold",
+                          m.role === "buyer" ? "bg-blue-500/20 text-blue-700" : "bg-emerald-500/20 text-emerald-700"
+                        )}
+                      >
+                        {m.step}
+                      </span>
+                      <div className="flex-1">
+                        <div className="text-[11px] font-semibold text-dim">{m.author}</div>
+                        <div className="text-ink mt-0.5 leading-snug">{m.text}</div>
+                      </div>
+                    </div>
+                  ))}
+              
+                  <div className="mt-2.5 rounded-lg bg-brand/10 border border-brand/20 p-2.5 text-xs text-ink">
+                    <span className="font-bold text-brand">Итог раунда:</span>{" "}
+                    {shown.term?.rationale || `Достигнут компромисс: ${shown.term?.value ?? "—"}`}
                   </div>
                 </div>
               </details>
+
 
               {/* Стороны сделки */}
               <div className="mt-3 grid gap-3 rounded-lg bg-foreground/[0.02] p-3 text-xs sm:text-sm sm:grid-cols-2">
