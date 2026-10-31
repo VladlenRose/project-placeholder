@@ -41,11 +41,15 @@ export const finalizeNegotiation = createServerFn({ method: "POST" })
     const side = row.buyer_id === context.userId ? "buyer" : "seller";
     if (!participantReady(row.snapshot as unknown as NegotiationSnapshot, side)) throw new Error("Сначала подтвердите каждый пункт.");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const rpc = supabaseAdmin.rpc as unknown as (name: string, args: object) => Promise<{ data: { negotiation: typeof row; contractId: string | null } | null; error: { message: string } | null }>;
-    const { data: saved, error: writeError } = await rpc("finalize_request_negotiation", { _id: row.id, _expected: data.version, _actor: context.userId });
+    const { data: saved, error: writeError } = await (supabaseAdmin as any).rpc("finalize_request_negotiation", {
+      _id: row.id,
+      _expected: data.version,
+      _actor: context.userId,
+    }) as { data: { negotiation: typeof row; contractId: string | null } | null; error: { message: string } | null };
     if (writeError || !saved) throw new Error(writeError?.message.includes("STALE_VERSION") ? "Условия изменились. Обновите переговоры и проверьте каждый пункт." : "Не удалось предложить условия. Обновите переговоры и попробуйте снова.");
     return saved;
   });
+
 export const openNegotiation = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => pairSchema.parse(input))
