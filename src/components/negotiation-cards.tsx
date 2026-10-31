@@ -29,9 +29,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
-import { BENEFIT, LABELS, type ParamKey, type TradeRequest } from "@/lib/bargain";
+import {
+  BENEFIT,
+  LABELS,
+  type Param,
+  type ParamKey,
+  type TradeRequest,
+} from "@/lib/bargain";
 import { describeDeal } from "@/lib/ai.functions";
-import { changeNegotiation, createContract, openNegotiation } from "@/lib/negotiations.functions";
+import {
+  changeNegotiation,
+  finalizeNegotiation,
+  openNegotiation,
+} from "@/lib/negotiations.functions";
 import {
   humansAgreed,
   proposeCondition,
@@ -49,16 +59,43 @@ type Edit = {
 };
 
 const PARAM_COLORS: Record<ParamKey, { badge: string; border: string }> = {
-  qty: { badge: "bg-blue-500/10 text-blue-600 border-blue-500/20", border: "border-blue-500/20" },
-  price: { badge: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20", border: "border-emerald-500/20" },
-  payment: { badge: "bg-violet-500/10 text-violet-600 border-violet-500/20", border: "border-violet-500/20" },
-  basis: { badge: "bg-amber-500/10 text-amber-600 border-amber-500/20", border: "border-amber-500/20" },
-  term: { badge: "bg-rose-500/10 text-rose-600 border-rose-500/20", border: "border-rose-500/20" },
-  warranty: { badge: "bg-teal-500/10 text-teal-600 border-teal-500/20", border: "border-teal-500/20" },
-  regularity: { badge: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20", border: "border-indigo-500/20" },
+  qty: {
+    badge: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+    border: "border-blue-500/20",
+  },
+  price: {
+    badge: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+    border: "border-emerald-500/20",
+  },
+  payment: {
+    badge: "bg-violet-500/10 text-violet-600 border-violet-500/20",
+    border: "border-violet-500/20",
+  },
+  basis: {
+    badge: "bg-amber-500/10 text-amber-600 border-amber-500/20",
+    border: "border-amber-500/20",
+  },
+  term: {
+    badge: "bg-rose-500/10 text-rose-600 border-rose-500/20",
+    border: "border-rose-500/20",
+  },
+  warranty: {
+    badge: "bg-teal-500/10 text-teal-600 border-teal-500/20",
+    border: "border-teal-500/20",
+  },
+  regularity: {
+    badge: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20",
+    border: "border-indigo-500/20",
+  },
 };
 
-export function NegotiationCards({ my, other }: { my: TradeRequest; other: TradeRequest }) {
+export function NegotiationCards({
+  my,
+  other,
+}: {
+  my: TradeRequest;
+  other: TradeRequest;
+}) {
   const buyer = my.kind === "buy" ? my : other;
   const seller = my.kind === "sell" ? my : other;
   const side = my.kind === "buy" ? "buyer" : "seller";
@@ -66,16 +103,17 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
   const open = useServerFn(openNegotiation);
   const change = useServerFn(changeNegotiation);
   const explain = useServerFn(describeDeal);
+  const finalize = useServerFn(finalizeNegotiation);
+
   const client = useQueryClient();
   const navigate = useNavigate();
-  const contract = useServerFn(createContract);
 
-  // 1. Имена сторон сделки через getPublicProfiles
   const profiles = useQuery({
     queryKey: ["public-profiles-chat", buyer.owner_id, seller.owner_id],
     queryFn: () => getPublicProfiles([buyer.owner_id, seller.owner_id]),
     staleTime: 60000,
   });
+
   const buyerProfile = profiles.data?.[buyer.owner_id];
   const sellerProfile = profiles.data?.[seller.owner_id];
   const buyerName = buyerProfile?.name || "Покупатель";
@@ -84,6 +122,7 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
   const partnerName = side === "buyer" ? sellerName : buyerName;
 
   const queryKey = ["request-negotiation", buyer.id, seller.id];
+
   const [edit, setEdit] = useState<Edit | null>(null);
   const [confirmation, setConfirmation] = useState<{
     key: ParamKey;
@@ -99,34 +138,46 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
   });
 
   const row = query.data;
-  const snapshot = row?.snapshot as unknown as NegotiationSnapshot | undefined;
+  const snapshot = row?.snapshot as unknown as
+    | NegotiationSnapshot
+    | undefined;
 
   const history = useQuery({
     queryKey: ["negotiation-history", row?.id, row?.version],
     enabled: !!row && showHistory,
     queryFn: async () => {
       if (!row) return [];
+
       const { data, error } = await supabase
         .from("negotiation_versions")
         .select("id,version,actor_id,action,param_key,snapshot,created_at")
         .eq("negotiation_id", row.id)
         .order("version", { ascending: false })
         .limit(100);
-      if (error) throw new Error("История недоступна.");
+
+      if (error) {
+        throw new Error("История недоступна.");
+      }
+
       return data ?? [];
     },
   });
 
   const send = useMutation({
     mutationFn: async () => {
-      if (!row || !confirmation) throw new Error("Выберите условие.");
+      if (!row || !confirmation) {
+        throw new Error("Выберите условие.");
+      }
+
       return change({
         data: {
           id: row.id,
           version: confirmation.version,
           action: confirmation.action,
           key: confirmation.key,
-          ...(confirmation.action === "propose" && edit ? { values: edit.values } : {}),
+          ...(confirmation.action === "propose" && edit
+            ? { values: edit.values }
+            : {}),
         },
       });
     },
@@ -146,30 +197,55 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
     queryKey: ["negotiation-summary", row?.id, row?.version],
     enabled: false,
     queryFn: async () => {
-      if (!snapshot) return { text: "" };
+      if (!snapshot) {
+        return { text: "" };
+      }
+
       return explain({
         data: {
           agreement: agreementPercent(snapshot),
-          conditions: snapshot.conditions.map((c) => ({
-            label: LABELS[c.key],
-            status: c.term?.status ?? "pending",
-            value: c.term?.value ?? "—",
+          conditions: snapshot.conditions.map((condition) => ({
+            label: LABELS[condition.key],
+            status: condition.term?.status ?? "pending",
+            value: condition.term?.value ?? "—",
           })),
         },
       });
     },
   });
 
-  const makeContract = useMutation({
+  const finalizeDeal = useMutation({
     mutationFn: async () => {
-      if (!row) throw new Error("Переговоры недоступны.");
-      return contract({ data: { id: row.id, version: row.version } });
+      if (!row) {
+        throw new Error("Переговоры недоступны.");
+      }
+
+      return finalize({
+        data: {
+          id: row.id,
+          version: row.version,
+        },
+      });
     },
-    onSuccess: () => {
-      toast.success("Договор успешно сформирован и передан в 1С:Предприятие (CommerceML)!");
-      navigate({ to: "/dashboard", search: { tab: "documents" } });
+    onSuccess: async ({ negotiation, contractId }) => {
+      client.setQueryData(queryKey, negotiation);
+      await client.invalidateQueries({ queryKey });
+
+      if (contractId) {
+        toast.success("Черновик договора создан.");
+        navigate({
+          to: "/dashboard",
+          search: { tab: "documents" },
+        });
+      } else {
+        toast.success(
+          "Ваше финальное подтверждение сохранено. Ожидается подтверждение партнёра.",
+        );
+      }
     },
-    onError: (err) => toast.error(err.message),
+    onError: (error) => {
+      toast.error(error.message);
+    },
   });
 
   if (query.isPending) {
@@ -198,121 +274,182 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
   }
 
   const beginEdit = (key: ParamKey) => {
-    const p = snapshot[side][key];
+    const parameter = snapshot[side][key];
+
     setEdit({
       key,
       version: row.version,
-      values: { min: p.min, max: p.max, unit: p.unit, value: p.value },
+      values: {
+        min: parameter.min,
+        max: parameter.max,
+        unit: parameter.unit,
+        value: parameter.value,
+      },
       preview: null,
     });
   };
 
   const simulate = () => {
     if (!edit) return;
-    const preview = proposeCondition(snapshot, side, edit.key, edit.values);
+
+    const preview = proposeCondition(
+      snapshot,
+      side,
+      edit.key,
+      edit.values,
+    );
+
     setEdit({ ...edit, preview });
   };
 
   const allAgreed = humansAgreed(snapshot);
-  const myCheckedAll = snapshot.conditions.every((c) =>
-    side === "buyer" ? c.buyerAccepted : c.sellerAccepted,
+  const alreadyFinalized = snapshot.finalProposals?.[side] === true;
+
+  const myCheckedAll = snapshot.conditions.every((condition) =>
+    side === "buyer"
+      ? condition.buyerAccepted
+      : condition.sellerAccepted,
   );
 
   return (
-    <div className="flex-1 space-y-6 p-4 sm:p-6 text-base">
-      {/* 1. Сводная карточка торга и ролей сторон с именами */}
+    <div className="flex-1 space-y-6 p-4 text-base sm:p-6">
+      {/* Сводная карточка торга и роли сторон */}
       <section className="rounded-2xl border-2 border-brand/20 bg-gradient-to-br from-brand/5 via-background to-card p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 pb-4">
           <div className="flex items-center gap-2.5">
             <span className="grid size-9 place-items-center rounded-xl bg-brand text-brand-foreground shadow-sm">
               <Sparkles className="size-5" />
             </span>
+
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-lg font-bold tracking-tight text-ink">
                   Параметры сделки и статус торга
                 </h2>
+
                 <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
                   <Users2 className="size-3" />
                   {myName} (Вы) ↔ {partnerName}
                 </span>
               </div>
-              <p className="text-xs text-dim sm:text-sm mt-0.5">
-                По каждому пункту проводится автономный торг агентов. Подтвердите условия.
+
+              <p className="mt-0.5 text-xs text-dim sm:text-sm">
+                По каждому пункту проводится автономный торг агентов.
+                Подтвердите условия.
               </p>
             </div>
           </div>
+
           <AgreementBadge percent={agreementPercent(snapshot)} />
         </div>
 
-        {/* 2. Карточки участников с именами и заявками */}
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 text-sm">
+        {/* Карточки участников */}
+        <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
           <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-blue-600 uppercase tracking-wide">
+              <span className="text-xs font-semibold uppercase tracking-wide text-blue-600">
                 Покупатель {side === "buyer" ? "· Вы" : ""}
               </span>
-              <span className="text-xs text-dim">{buyerProfile?.company || ""}</span>
+              <span className="text-xs text-dim">
+                {buyerProfile?.company || ""}
+              </span>
             </div>
-            <div className="mt-1 font-bold text-ink text-base">{buyerName}</div>
-            <div className="text-xs text-dim mt-0.5 truncate">Заявка: {buyer.title}</div>
+
+            <div className="mt-1 text-base font-bold text-ink">
+              {buyerName}
+            </div>
+            <div className="mt-0.5 truncate text-xs text-dim">
+              Заявка: {buyer.title}
+            </div>
           </div>
 
           <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">
+              <span className="text-xs font-semibold uppercase tracking-wide text-emerald-600">
                 Продавец {side === "seller" ? "· Вы" : ""}
               </span>
-              <span className="text-xs text-dim">{sellerProfile?.company || ""}</span>
+              <span className="text-xs text-dim">
+                {sellerProfile?.company || ""}
+              </span>
             </div>
-            <div className="mt-1 font-bold text-ink text-base">{sellerName}</div>
-            <div className="text-xs text-dim mt-0.5 truncate">Заявка: {seller.title}</div>
+
+            <div className="mt-1 text-base font-bold text-ink">
+              {sellerName}
+            </div>
+            <div className="mt-0.5 truncate text-xs text-dim">
+              Заявка: {seller.title}
+            </div>
           </div>
         </div>
 
-        {/* 3. Сводная таблица параметров: Мое условие, Компромисс ботов, 4 статуса */}
+        {/* Сводная таблица параметров */}
         <div className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
           <table className="w-full text-left text-xs sm:text-sm">
             <thead className="border-b border-border bg-foreground/[0.02] text-dim">
               <tr>
                 <th className="py-2.5 pl-3 pr-2 font-medium">№</th>
-                <th className="py-2.5 px-2 font-medium">Параметр</th>
-                <th className="py-2.5 px-2 font-medium">Мое условие</th>
-                <th className="py-2.5 px-2 font-medium">Компромисс ботов</th>
-                <th className="py-2.5 pl-2 pr-3 font-medium text-right">Статус</th>
+                <th className="px-2 py-2.5 font-medium">Параметр</th>
+                <th className="px-2 py-2.5 font-medium">Моё условие</th>
+                <th className="px-2 py-2.5 font-medium">Компромисс ботов</th>
+                <th className="py-2.5 pl-2 pr-3 text-right font-medium">
+                  Статус
+                </th>
               </tr>
             </thead>
+
             <tbody className="divide-y divide-border">
-              {snapshot.conditions.map((c, idx) => {
-                const isMyOk = side === "buyer" ? c.buyerAccepted : c.sellerAccepted;
-                const isOtherOk = side === "buyer" ? c.sellerAccepted : c.buyerAccepted;
-                const myParam = snapshot[side][c.key];
-                const range = ["qty", "price", "term"].includes(c.key);
+              {snapshot.conditions.map((condition, index) => {
+                const isMyOk =
+                  side === "buyer"
+                    ? condition.buyerAccepted
+                    : condition.sellerAccepted;
+                const isOtherOk =
+                  side === "buyer"
+                    ? condition.sellerAccepted
+                    : condition.buyerAccepted;
+                const myParam = snapshot[side][condition.key];
+                const range = ["qty", "price", "term"].includes(
+                  condition.key,
+                );
 
                 let statusText = "Ожидает решения";
-                let statusBadge = "bg-muted text-dim border-border";
+                let statusBadge = "border-border bg-muted text-dim";
                 let statusIcon = "⏳";
 
                 if (isMyOk && isOtherOk) {
                   statusText = "Согласовано обоими";
-                  statusBadge = "bg-emerald-500/10 text-emerald-600 border-emerald-500/20";
+                  statusBadge =
+                    "border-emerald-500/20 bg-emerald-500/10 text-emerald-600";
                   statusIcon = "✓";
                 } else if (isMyOk) {
                   statusText = "Принято вами";
-                  statusBadge = "bg-blue-500/10 text-blue-600 border-blue-500/20";
+                  statusBadge =
+                    "border-blue-500/20 bg-blue-500/10 text-blue-600";
                   statusIcon = "✓";
                 } else if (isOtherOk) {
-                  statusText = "Принято партнером";
-                  statusBadge = "bg-purple-500/10 text-purple-600 border-purple-500/20";
+                  statusText = "Принято партнёром";
+                  statusBadge =
+                    "border-purple-500/20 bg-purple-500/10 text-purple-600";
                   statusIcon = "⏳";
                 }
 
                 return (
-                  <tr key={c.key} className="hover:bg-foreground/[0.01]">
-                    <td className="py-2.5 pl-3 pr-2 font-mono text-xs text-dim">#{idx + 1}</td>
-                    <td className="py-2.5 px-2 font-medium text-ink">{LABELS[c.key]}</td>
-                    <td className="py-2.5 px-2 text-ink font-medium">{parameterText(myParam, range)}</td>
-                    <td className="py-2.5 px-2 text-ink font-semibold">{c.term?.value ?? "—"}</td>
+                  <tr
+                    key={condition.key}
+                    className="hover:bg-foreground/[0.01]"
+                  >
+                    <td className="py-2.5 pl-3 pr-2 font-mono text-xs text-dim">
+                      #{index + 1}
+                    </td>
+                    <td className="px-2 py-2.5 font-medium text-ink">
+                      {LABELS[condition.key]}
+                    </td>
+                    <td className="px-2 py-2.5 font-medium text-ink">
+                      {parameterText(myParam, range)}
+                    </td>
+                    <td className="px-2 py-2.5 font-semibold text-ink">
+                      {condition.term?.value ?? "—"}
+                    </td>
                     <td className="py-2.5 pl-2 pr-3 text-right">
                       <span
                         className={cn(
@@ -332,29 +469,41 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
         </div>
       </section>
 
-      {/* Список параметров с подробностями */}
+      {/* Подробные карточки параметров */}
       <div className="space-y-4">
-        {snapshot.conditions.map((c, index) => {
-          const current = edit?.key === c.key ? edit : null;
-          const shown = current?.preview?.conditions.find((item) => item.key === c.key) ?? c;
-          const p = snapshot[side][c.key];
-          const range = ["qty", "price", "term"].includes(c.key);
-          const isMyOk = side === "buyer" ? c.buyerAccepted : c.sellerAccepted;
-          const isOtherOk = side === "buyer" ? c.sellerAccepted : c.buyerAccepted;
-          const color = (PARAM_COLORS as Record<string, { badge: string; border: string }>)[c.key] ?? {
+        {snapshot.conditions.map((condition, index) => {
+          const current =
+            edit?.key === condition.key ? edit : null;
+          const shown =
+            current?.preview?.conditions.find(
+              (item) => item.key === condition.key,
+            ) ?? condition;
+          const parameter = snapshot[side][condition.key];
+          const range = ["qty", "price", "term"].includes(
+            condition.key,
+          );
+          const isMyOk =
+            side === "buyer"
+              ? condition.buyerAccepted
+              : condition.sellerAccepted;
+          const isOtherOk =
+            side === "buyer"
+              ? condition.sellerAccepted
+              : condition.buyerAccepted;
+          const color = PARAM_COLORS[condition.key] ?? {
             badge: "bg-muted text-foreground border-border",
             border: "border-border",
           };
 
           return (
             <article
-              key={c.key}
+              key={condition.key}
               className={cn(
                 "rounded-xl border bg-card p-5 shadow-sm transition-all",
                 color.border,
               )}
             >
-              {/* Шапка карточки с номером и цветом */}
+              {/* Заголовок карточки */}
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
                 <div className="flex items-center gap-2">
                   <span
@@ -365,111 +514,148 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
                   >
                     #{index + 1}
                   </span>
-                  <h3 className="text-base sm:text-lg font-bold text-ink">{LABELS[c.key]}</h3>
+
+                  <h3 className="text-base font-bold text-ink sm:text-lg">
+                    {LABELS[condition.key]}
+                  </h3>
                 </div>
+
                 {shown.term && (
                   <AgreementBadge
-                    percent={conditionPercent(current?.preview ?? snapshot, shown) ?? 0}
+                    percent={
+                      conditionPercent(
+                        current?.preview ?? snapshot,
+                        shown,
+                      ) ?? 0
+                    }
                   />
                 )}
               </div>
 
-              <p className="mt-2 text-xs sm:text-sm text-dim">{BENEFIT[c.key]}</p>
+              <p className="mt-2 text-xs text-dim sm:text-sm">
+                {BENEFIT[condition.key]}
+              </p>
 
-              {/* Разворачивающийся реалистичный торг ботов (А1 -> Б1 -> А2 -> Б2) */}
+              {/* Диалог торга ботов */}
               <details className="group mt-3 rounded-xl border border-border/80 bg-foreground/[0.015] p-3 text-xs sm:text-sm">
                 <summary className="flex cursor-pointer list-none items-center justify-between font-medium text-dim hover:text-ink">
                   <div className="flex items-center gap-2">
                     <Bot className="size-4 text-brand" />
-                    <span className="font-semibold text-ink">Ход торга ботов: {LABELS[c.key]} (4 раунда)</span>
+                    <span className="font-semibold text-ink">
+                      Ход торга ботов: {LABELS[condition.key]} (4 раунда)
+                    </span>
                   </div>
                   <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
                 </summary>
-              
+
                 <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
                   {generateBotDialogue(
-                    c.key,
-                    snapshot.buyer[c.key],
-                    snapshot.seller[c.key],
+                    condition.key,
+                    snapshot.buyer[condition.key],
+                    snapshot.seller[condition.key],
                     shown.term?.value,
                     range,
                     buyerName,
-                    sellerName
-                  ).map((m, idx) => (
+                    sellerName,
+                  ).map((message, messageIndex) => (
                     <div
-                      key={idx}
+                      key={messageIndex}
                       className={cn(
                         "flex items-start gap-2.5 rounded-lg p-2.5 transition-colors",
-                        m.role === "buyer" ? "bg-blue-500/5 border border-blue-500/10" : "bg-emerald-500/5 border border-emerald-500/10"
+                        message.role === "buyer"
+                          ? "border border-blue-500/10 bg-blue-500/5"
+                          : "border border-emerald-500/10 bg-emerald-500/5",
                       )}
                     >
                       <span
                         className={cn(
                           "grid size-5 shrink-0 place-items-center rounded-full text-[10px] font-bold",
-                          m.role === "buyer" ? "bg-blue-500/20 text-blue-700" : "bg-emerald-500/20 text-emerald-700"
+                          message.role === "buyer"
+                            ? "bg-blue-500/20 text-blue-700"
+                            : "bg-emerald-500/20 text-emerald-700",
                         )}
                       >
-                        {m.step}
+                        {message.step}
                       </span>
+
                       <div className="flex-1">
-                        <div className="text-[11px] font-semibold text-dim">{m.author}</div>
-                        <div className="text-ink mt-0.5 leading-snug">{m.text}</div>
+                        <div className="text-[11px] font-semibold text-dim">
+                          {message.author}
+                        </div>
+                        <div className="mt-0.5 leading-snug text-ink">
+                          {message.text}
+                        </div>
                       </div>
                     </div>
                   ))}
-              
-                  <div className="mt-2.5 rounded-lg bg-brand/10 border border-brand/20 p-2.5 text-xs text-ink">
-                    <span className="font-bold text-brand">Итог раунда:</span>{" "}
-                    {shown.term?.rationale || `Достигнут компромисс: ${shown.term?.value ?? "—"}`}
+
+                  <div className="mt-2.5 rounded-lg border border-brand/20 bg-brand/10 p-2.5 text-xs text-ink">
+                    <span className="font-bold text-brand">
+                      Итог раунда:
+                    </span>{" "}
+                    {shown.term?.rationale ||
+                      `Достигнут компромисс: ${shown.term?.value ?? "—"}`}
                   </div>
                 </div>
               </details>
 
-
-              {/* Стороны сделки */}
-              <div className="mt-3 grid gap-3 rounded-lg bg-foreground/[0.02] p-3 text-xs sm:text-sm sm:grid-cols-2">
+              {/* Условия сторон */}
+              <div className="mt-3 grid gap-3 rounded-lg bg-foreground/[0.02] p-3 text-xs sm:grid-cols-2 sm:text-sm">
                 <div>
                   <div className="font-semibold text-dim">
-                    Покупатель ({buyerName}) {side === "buyer" ? "· Вы" : ""}
+                    Покупатель ({buyerName}){" "}
+                    {side === "buyer" ? "· Вы" : ""}
                   </div>
                   <div className="mt-0.5 text-base font-medium text-ink">
-                    {parameterText(snapshot.buyer[c.key], range)}
+                    {parameterText(snapshot.buyer[condition.key], range)}
                   </div>
                 </div>
+
                 <div>
                   <div className="font-semibold text-dim">
-                    Продавец ({sellerName}) {side === "seller" ? "· Вы" : ""}
+                    Продавец ({sellerName}){" "}
+                    {side === "seller" ? "· Вы" : ""}
                   </div>
                   <div className="mt-0.5 text-base font-medium text-ink">
-                    {parameterText(snapshot.seller[c.key], range)}
+                    {parameterText(snapshot.seller[condition.key], range)}
                   </div>
                 </div>
               </div>
 
-              {/* Итог согласования ботов */}
+              {/* Компромисс ботов */}
               <div className="mt-4 rounded-xl border border-border/80 bg-foreground/[0.015] p-3.5">
-                <div className="text-xs font-medium text-dim">Компромисс ботов</div>
-                <div className="mt-1 text-base sm:text-lg font-bold text-ink">
+                <div className="text-xs font-medium text-dim">
+                  Компромисс ботов
+                </div>
+                <div className="mt-1 text-base font-bold text-ink sm:text-lg">
                   {shown.term?.value ?? "Условие пока не выработано"}
                 </div>
                 {shown.term?.rationale && (
-                  <p className="mt-1 text-xs sm:text-sm text-dim leading-relaxed">
+                  <p className="mt-1 text-xs leading-relaxed text-dim sm:text-sm">
                     {shown.term.rationale}
                   </p>
                 )}
               </div>
 
-              {/* Статус согласования с 4 состояниями */}
+              {/* Подтверждение параметра */}
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3 pt-2">
                 <div className="text-xs sm:text-sm">
                   {isMyOk && isOtherOk ? (
-                    <span className="font-semibold text-emerald-600">✓ Согласовано обеими сторонами</span>
+                    <span className="font-semibold text-emerald-600">
+                      ✓ Согласовано обеими сторонами
+                    </span>
                   ) : isMyOk ? (
-                    <span className="font-medium text-blue-600">✓ Принято вами (партнер еще не подтвердил)</span>
+                    <span className="font-medium text-blue-600">
+                      ✓ Принято вами (партнёр ещё не подтвердил)
+                    </span>
                   ) : isOtherOk ? (
-                    <span className="font-medium text-purple-600">⏳ Принято {partnerName} (ждет вашего подтверждения)</span>
+                    <span className="font-medium text-purple-600">
+                      ⏳ Принято {partnerName} (ждёт вашего подтверждения)
+                    </span>
                   ) : (
-                    <span className="font-medium text-amber-600">Ожидает вашего подтверждения</span>
+                    <span className="font-medium text-amber-600">
+                      Ожидает вашего подтверждения
+                    </span>
                   )}
                 </div>
 
@@ -479,7 +665,11 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
                       size="sm"
                       className="bg-emerald-600 text-white hover:bg-emerald-700"
                       onClick={() =>
-                        setConfirmation({ key: c.key, version: row.version, action: "accept" })
+                        setConfirmation({
+                          key: condition.key,
+                          version: row.version,
+                          action: "accept",
+                        })
                       }
                     >
                       <Check className="size-4" />
@@ -490,46 +680,56 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => (current ? setEdit(null) : beginEdit(c.key))}
+                    onClick={() =>
+                      current ? setEdit(null) : beginEdit(condition.key)
+                    }
                   >
                     <Pencil className="size-3.5" />
-                    {current ? "Отмена" : "Изменить свое"}
+                    {current ? "Отмена" : "Изменить своё"}
                   </Button>
                 </div>
               </div>
 
-              {/* Форма изменения своего условия */}
+              {/* Форма изменения условия */}
               {current && (
                 <div className="mt-4 space-y-3 rounded-xl border border-dashed border-brand/40 bg-brand/5 p-4 text-xs sm:text-sm">
                   <div className="font-semibold text-ink">
-                    Ваше новое условие для пересчета торга:
+                    Ваше новое условие для пересчёта торга:
                   </div>
+
                   {range ? (
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="text-xs text-dim">От</label>
                         <Input
                           value={current.values.min ?? ""}
-                          onChange={(e) =>
+                          onChange={(event) =>
                             setEdit({
                               ...current,
-                              values: { ...current.values, min: e.target.value },
+                              values: {
+                                ...current.values,
+                                min: event.target.value,
+                              },
                             })
                           }
-                          placeholder={p.min || "мин"}
+                          placeholder={parameter.min || "мин"}
                         />
                       </div>
+
                       <div>
                         <label className="text-xs text-dim">До</label>
                         <Input
                           value={current.values.max ?? ""}
-                          onChange={(e) =>
+                          onChange={(event) =>
                             setEdit({
                               ...current,
-                              values: { ...current.values, max: e.target.value },
+                              values: {
+                                ...current.values,
+                                max: event.target.value,
+                              },
                             })
                           }
-                          placeholder={p.max || "макс"}
+                          placeholder={parameter.max || "макс"}
                         />
                       </div>
                     </div>
@@ -537,25 +737,37 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
                     <div>
                       <Input
                         value={current.values.value ?? ""}
-                        onChange={(e) =>
+                        onChange={(event) =>
                           setEdit({
                             ...current,
-                            values: { ...current.values, value: e.target.value },
+                            values: {
+                              ...current.values,
+                              value: event.target.value,
+                            },
                           })
                         }
-                        placeholder={p.value || "Значение"}
+                        placeholder={parameter.value || "Значение"}
                       />
                     </div>
                   )}
 
                   <div className="flex flex-wrap gap-2 pt-2">
-                    <Button size="sm" variant="secondary" onClick={simulate}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={simulate}
+                    >
                       Пересчитать с ботом
                     </Button>
+
                     <Button
                       size="sm"
                       onClick={() =>
-                        setConfirmation({ key: c.key, version: current.version, action: "propose" })
+                        setConfirmation({
+                          key: condition.key,
+                          version: current.version,
+                          action: "propose",
+                        })
                       }
                     >
                       <Send className="size-3.5" />
@@ -569,15 +781,16 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
         })}
       </div>
 
-      {/* Краткий пересказ ИИ и общий лог */}
+      {/* ИИ-сводка и лог согласования */}
       <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Bot className="size-5 text-brand" />
-            <h3 className="font-semibold text-ink text-sm sm:text-base">
+            <h3 className="text-sm font-semibold text-ink sm:text-base">
               Что решили боты сторон (ИИ-сводка)
             </h3>
           </div>
+
           <Button
             size="sm"
             variant="outline"
@@ -594,38 +807,50 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
         </div>
 
         {summary.data?.text && (
-          <p className="mt-3 text-xs sm:text-sm text-dim leading-relaxed bg-brand/5 border border-brand/20 p-3 rounded-lg">
+          <p className="mt-3 rounded-lg border border-brand/20 bg-brand/5 p-3 text-xs leading-relaxed text-dim sm:text-sm">
             {summary.data.text}
           </p>
         )}
 
         <details className="group mt-3 border-t border-border/80 pt-3">
-          <summary className="flex cursor-pointer list-none items-center justify-between text-xs sm:text-sm font-medium text-dim hover:text-ink">
+          <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-medium text-dim hover:text-ink sm:text-sm">
             <span>Показать полный лог согласования условий ботами</span>
             <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
           </summary>
-          <div className="mt-3 space-y-2 text-xs sm:text-sm text-dim">
-            {snapshot.conditions.map((c) => (
-              <div key={c.key} className="rounded-lg bg-foreground/[0.02] p-2.5">
-                <span className="font-semibold text-ink">{LABELS[c.key]}:</span>{" "}
-                {c.term?.rationale || "Условие принято автоматически на основе диапазонов заявок."}
+
+          <div className="mt-3 space-y-2 text-xs text-dim sm:text-sm">
+            {snapshot.conditions.map((condition) => (
+              <div
+                key={condition.key}
+                className="rounded-lg bg-foreground/[0.02] p-2.5"
+              >
+                <span className="font-semibold text-ink">
+                  {LABELS[condition.key]}:
+                </span>{" "}
+                {condition.term?.rationale ||
+                  "Условие принято автоматически на основе диапазонов заявок."}
               </div>
             ))}
           </div>
         </details>
       </section>
 
-      {/* Финальный блок: Предложить условия / Оформить договор */}
+      {/* Финальное подтверждение сделки */}
       <section className="sticky bottom-4 z-20 rounded-2xl border-2 border-brand bg-card p-5 shadow-lg">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="text-base font-bold text-ink">Итоговое согласование сделки</div>
-            <div className="text-xs sm:text-sm text-dim">
-              {allAgreed
-                ? "Обе стороны подтвердили все параметры. Можно оформлять официальный договор!"
+            <div className="text-base font-bold text-ink">
+              Итоговое согласование сделки
+            </div>
+
+            <div className="text-xs text-dim sm:text-sm">
+              {alreadyFinalized
+                ? "Ваше финальное подтверждение сохранено. Ожидаем подтверждения партнёра."
                 : myCheckedAll
-                ? "Вы приняли все параметры! Ожидаем подтверждения от второй стороны."
-                : "Отметьте каждый параметр выше, чтобы сформировать финальное предложение."}
+                  ? allAgreed
+                    ? "Обе стороны приняли все пункты. Отправьте финальное подтверждение сделки."
+                    : "Вы приняли все пункты. Отправьте финальное подтверждение; партнёру нужно принять свои."
+                  : "Примите каждый пункт выше, чтобы отправить финальное подтверждение."}
             </div>
           </div>
 
@@ -633,61 +858,64 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setShowHistory((v) => !v)}
+              onClick={() => setShowHistory((value) => !value)}
               className="text-xs"
             >
               <History className="size-3.5" />
               История ({row.version})
             </Button>
 
-            {allAgreed ? (
-              <Button
-                size="lg"
-                className="bg-emerald-600 text-white hover:bg-emerald-700 shadow-md font-semibold text-base"
-                disabled={makeContract.isPending}
-                onClick={() => makeContract.mutate()}
-              >
-                {makeContract.isPending ? (
-                  <Loader2 className="size-5 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="size-5" />
-                )}
-                Оформить договор
-              </Button>
-            ) : (
-              <Button
-                size="lg"
-                disabled={!myCheckedAll || send.isPending}
-                className={cn(
-                  myCheckedAll
-                    ? "bg-brand text-brand-foreground shadow-md font-semibold"
-                    : "opacity-60",
-                )}
-                onClick={() => toast.success("Все условия подтверждены с вашей стороны!")}
-              >
-                {myCheckedAll ? "✓ Все условия предложены" : "Предложить условия сделки"}
-              </Button>
-            )}
+            <Button
+              size="lg"
+              className="bg-emerald-600 text-base font-semibold text-white shadow-md hover:bg-emerald-700"
+              disabled={
+                !myCheckedAll ||
+                finalizeDeal.isPending ||
+                alreadyFinalized
+              }
+              onClick={() => finalizeDeal.mutate()}
+            >
+              {finalizeDeal.isPending ? (
+                <Loader2 className="size-5 animate-spin" />
+              ) : (
+                <CheckCircle2 className="size-5" />
+              )}
+
+              {alreadyFinalized
+                ? "Ожидаем партнёра"
+                : myCheckedAll
+                  ? "Подтвердить сделку"
+                  : "Сначала примите все пункты"}
+            </Button>
           </div>
         </div>
       </section>
 
       {/* Диалог истории версий */}
       <Dialog open={showHistory} onOpenChange={setShowHistory}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>История изменений торга</DialogTitle>
-            <DialogDescription>Все версии согласования между сторонами.</DialogDescription>
+            <DialogDescription>
+              Все версии согласования между сторонами.
+            </DialogDescription>
           </DialogHeader>
+
           <div className="space-y-3 text-xs sm:text-sm">
-            {history.data?.map((h) => (
-              <div key={h.id} className="rounded-lg border p-3">
+            {history.data?.map((item) => (
+              <div key={item.id} className="rounded-lg border p-3">
                 <div className="flex items-center justify-between font-medium">
-                  <span>Версия #{h.version}</span>
-                  <span className="text-dim">{new Date(h.created_at).toLocaleString("ru-RU")}</span>
+                  <span>Версия #{item.version}</span>
+                  <span className="text-dim">
+                    {new Date(item.created_at).toLocaleString("ru-RU")}
+                  </span>
                 </div>
-                <div className="text-dim mt-1">
-                  Действие: {h.action} {h.param_key ? `(${LABELS[h.param_key as ParamKey]})` : ""}
+
+                <div className="mt-1 text-dim">
+                  Действие: {item.action}{" "}
+                  {item.param_key
+                    ? `(${LABELS[item.param_key as ParamKey]})`
+                    : ""}
                 </div>
               </div>
             ))}
@@ -695,27 +923,46 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
         </DialogContent>
       </Dialog>
 
-      {/* Диалог подтверждения отправки изменения */}
-      <Dialog open={!!confirmation} onOpenChange={(open) => !open && setConfirmation(null)}>
+      {/* Диалог подтверждения изменения */}
+      <Dialog
+        open={!!confirmation}
+        onOpenChange={(isOpen) => !isOpen && setConfirmation(null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Подтверждение условия</DialogTitle>
             <DialogDescription>
               {confirmation?.action === "accept"
                 ? `Вы соглашаетесь с условием по параметру «${
-                    confirmation?.key ? LABELS[confirmation.key] : ""
+                    confirmation?.key
+                      ? LABELS[confirmation.key]
+                      : ""
                   }». Вторая сторона увидит ваш выбор.`
                 : `Отправить новое условие по параметру «${
-                    confirmation?.key ? LABELS[confirmation.key] : ""
+                    confirmation?.key
+                      ? LABELS[confirmation.key]
+                      : ""
                   }» на согласование?`}
             </DialogDescription>
           </DialogHeader>
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmation(null)}>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmation(null)}
+            >
               Отмена
             </Button>
-            <Button disabled={send.isPending} onClick={() => send.mutate()}>
-              {send.isPending ? <Loader2 className="size-4 animate-spin" /> : "Подтвердить"}
+
+            <Button
+              disabled={send.isPending}
+              onClick={() => send.mutate()}
+            >
+              {send.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                "Подтвердить"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -725,27 +972,30 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
 }
 
 function parameterText(
-  p: (ConditionValues & { ignore?: boolean }) | undefined | null,
+  parameter: (ConditionValues & { ignore?: boolean }) | undefined | null,
   range: boolean,
 ) {
-  if (!p) return "—";
-  if (p.ignore) return "Неважно";
-  if (!range) return p.value || "Не задано";
+  if (!parameter) return "—";
+  if (parameter.ignore) return "Неважно";
+  if (!range) return parameter.value || "Не задано";
 
-  const min = p.min?.trim();
-  const max = p.max?.trim();
-  const unit = p.unit?.trim() ? ` ${p.unit.trim()}` : "";
+  const min = parameter.min?.trim();
+  const max = parameter.max?.trim();
+  const unit = parameter.unit?.trim()
+    ? ` ${parameter.unit.trim()}`
+    : "";
 
   if (min && max && min === max) {
     return `${min}${unit}`;
   }
+
   if (min && max) {
     return `${min}–${max}${unit}`;
   }
+
   return `${min || max || "—"}${unit}`;
 }
 
-// Генератор реалистичного 4-шагового диалога ботов (А1 -> Б1 -> А2 -> Б2)
 function generateBotDialogue(
   key: ParamKey,
   buyerParam: Param,
@@ -753,45 +1003,124 @@ function generateBotDialogue(
   termValue: string | undefined,
   range: boolean,
   buyerName: string,
-  sellerName: string
+  sellerName: string,
 ) {
   const label = LABELS[key].toLowerCase();
-  const bText = parameterText(buyerParam, range);
-  const sText = parameterText(sellerParam, range);
-  const comp = termValue || "согласованное значение";
+  const buyerText = parameterText(buyerParam, range);
+  const sellerText = parameterText(sellerParam, range);
+  const compromise = termValue || "согласованное значение";
 
   if (key === "price") {
     return [
-      { step: "А1", author: `Бот покупателя (${buyerName})`, role: "buyer", text: `Начальный запрос: целевой бюджет ${bText}. Приоритет параметра ${buyerParam.priority}%.` },
-      { step: "Б1", author: `Бот продавца (${sellerName})`, role: "seller", text: `Базовый прайс-лист: ${sText}. Ниже себестоимости отгрузить не можем, учитывая логистику.` },
-      { step: "А2", author: `Бот покупателя (${buyerName})`, role: "buyer", text: `Готовы гарантировать быстрый объём и платёжную дисциплину при встречной скидке.` },
-      { step: "Б2", author: `Бот продавца (${sellerName})`, role: "seller", text: `Учитывая условия, сходимся на компромиссе ${comp}. Фиксируем в договоре.` },
+      {
+        step: "А1",
+        author: `Бот покупателя (${buyerName})`,
+        role: "buyer",
+        text: `Начальный запрос: целевой бюджет ${buyerText}. Приоритет параметра ${buyerParam.priority}%.`,
+      },
+      {
+        step: "Б1",
+        author: `Бот продавца (${sellerName})`,
+        role: "seller",
+        text: `Базовый прайс-лист: ${sellerText}. Ниже себестоимости отгрузить не можем, учитывая логистику.`,
+      },
+      {
+        step: "А2",
+        author: `Бот покупателя (${buyerName})`,
+        role: "buyer",
+        text: "Готовы гарантировать быстрый объём и платёжную дисциплину при встречной скидке.",
+      },
+      {
+        step: "Б2",
+        author: `Бот продавца (${sellerName})`,
+        role: "seller",
+        text: `Учитывая условия, сходимся на компромиссе ${compromise}. Фиксируем в договоре.`,
+      },
     ];
   }
 
   if (key === "term") {
     return [
-      { step: "А1", author: `Бот покупателя (${buyerName})`, role: "buyer", text: `Требуемый срок поставки: ${bText}. Важно для соблюдения нашего производственного цикла.` },
-      { step: "Б1", author: `Бот продавца (${sellerName})`, role: "seller", text: `Стандартный цикл сборки и отгрузки составляет ${sText}.` },
-      { step: "А2", author: `Бот покупателя (${buyerName})`, role: "buyer", text: `Готовы согласовать поэтапную приёмку, если сократите предельный срок.` },
-      { step: "Б2", author: `Бот продавца (${sellerName})`, role: "seller", text: `Оптимизируем логистику склада: итоговый срок поставки — ${comp}.` },
+      {
+        step: "А1",
+        author: `Бот покупателя (${buyerName})`,
+        role: "buyer",
+        text: `Требуемый срок поставки: ${buyerText}. Важно для соблюдения нашего производственного цикла.`,
+      },
+      {
+        step: "Б1",
+        author: `Бот продавца (${sellerName})`,
+        role: "seller",
+        text: `Стандартный цикл сборки и отгрузки составляет ${sellerText}.`,
+      },
+      {
+        step: "А2",
+        author: `Бот покупателя (${buyerName})`,
+        role: "buyer",
+        text: "Готовы согласовать поэтапную приёмку, если сократите предельный срок.",
+      },
+      {
+        step: "Б2",
+        author: `Бот продавца (${sellerName})`,
+        role: "seller",
+        text: `Оптимизируем логистику склада: итоговый срок поставки — ${compromise}.`,
+      },
     ];
   }
 
   if (key === "qty") {
     return [
-      { step: "А1", author: `Бот покупателя (${buyerName})`, role: "buyer", text: `Планируемый объём закупки: ${bText}.` },
-      { step: "Б1", author: `Бот продавца (${sellerName})`, role: "seller", text: `Минимальная рентабельная партия у поставщика: ${sText}.` },
-      { step: "А2", author: `Бот покупателя (${buyerName})`, role: "buyer", text: `Сверяем складские остатки: можем скорректировать размер партии.` },
-      { step: "Б2", author: `Бот продавца (${sellerName})`, role: "seller", text: `Договорились: фиксируем партию в размере ${comp}.` },
+      {
+        step: "А1",
+        author: `Бот покупателя (${buyerName})`,
+        role: "buyer",
+        text: `Планируемый объём закупки: ${buyerText}.`,
+      },
+      {
+        step: "Б1",
+        author: `Бот продавца (${sellerName})`,
+        role: "seller",
+        text: `Минимальная рентабельная партия у поставщика: ${sellerText}.`,
+      },
+      {
+        step: "А2",
+        author: `Бот покупателя (${buyerName})`,
+        role: "buyer",
+        text: "Сверяем складские остатки: можем скорректировать размер партии.",
+      },
+      {
+        step: "Б2",
+        author: `Бот продавца (${sellerName})`,
+        role: "seller",
+        text: `Договорились: фиксируем партию в размере ${compromise}.`,
+      },
     ];
   }
 
-  // Для условий оплаты, доставки, гарантии
   return [
-    { step: "А1", author: `Бот покупателя (${buyerName})`, role: "buyer", text: `По параметру «${label}» запрашиваем: «${bText}».` },
-    { step: "Б1", author: `Бот продавца (${sellerName})`, role: "seller", text: `Регламентная позиция поставщика: «${sText}».` },
-    { step: "А2", author: `Бот покупателя (${buyerName})`, role: "buyer", text: `Изучили регламент: готовы пойти на уступку при согласии со встречным пунктом.` },
-    { step: "Б2", author: `Бот продавца (${sellerName})`, role: "seller", text: `Взаимный интерес подтверждён. Утверждаем вариант «${comp}».` },
+    {
+      step: "А1",
+      author: `Бот покупателя (${buyerName})`,
+      role: "buyer",
+      text: `По параметру «${label}» запрашиваем: «${buyerText}».`,
+    },
+    {
+      step: "Б1",
+      author: `Бот продавца (${sellerName})`,
+      role: "seller",
+      text: `Регламентная позиция поставщика: «${sellerText}».`,
+    },
+    {
+      step: "А2",
+      author: `Бот покупателя (${buyerName})`,
+      role: "buyer",
+      text: "Изучили регламент: готовы пойти на уступку при согласии со встречным пунктом.",
+    },
+    {
+      step: "Б2",
+      author: `Бот продавца (${sellerName})`,
+      role: "seller",
+      text: `Взаимный интерес подтверждён. Утверждаем вариант «${compromise}».`,
+    },
   ];
 }
