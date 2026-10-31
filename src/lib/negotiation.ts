@@ -60,5 +60,6 @@ export function proposeAllConditions(snapshot: NegotiationSnapshot, side: Side):
 }
 
 export function contractReady(snapshot: NegotiationSnapshot) {
-  return humansAgreed(snapshot) && snapshot.finalProposals?.buyer === true && snapshot.finalProposals?.seller === true;
+  // Если обе стороны подтвердили каждый согласованный пункт — договор готов к формированию
+  return humansAgreed(snapshot);
 }
