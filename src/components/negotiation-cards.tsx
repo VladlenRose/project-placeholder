@@ -16,7 +16,7 @@ import {
   Sparkles,
   Users2,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -120,6 +120,27 @@ export function NegotiationCards({
   const sellerName = sellerProfile?.name || "Продавец";
   const myName = side === "buyer" ? buyerName : sellerName;
   const partnerName = side === "buyer" ? sellerName : buyerName;
+
+  // Индекс надёжности партнёра на основе отзывов
+  const [partnerReview, setPartnerReview] = useState<{
+    score: string;
+    count: number;
+  } | null>(null);
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(
+        localStorage.getItem("ai_mall_partner_reviews") || "{}",
+      );
+      if (stored[partnerName]) {
+        setPartnerReview(stored[partnerName]);
+      } else {
+        setPartnerReview(null);
+      }
+    } catch {
+      setPartnerReview(null);
+    }
+  }, [partnerName]);
 
   const queryKey = ["request-negotiation", buyer.id, seller.id];
 
@@ -313,7 +334,7 @@ export function NegotiationCards({
 
   return (
     <div className="flex-1 space-y-6 p-4 text-base sm:p-6">
-      {/* Сводная карточка торга и роли сторон */}
+      {/* Сводная карточка торга и статус надёжности партнёра */}
       <section className="rounded-2xl border-2 border-brand/20 bg-gradient-to-br from-brand/5 via-background to-card p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 pb-4">
           <div className="flex items-center gap-2.5">
@@ -331,6 +352,12 @@ export function NegotiationCards({
                   <Users2 className="size-3" />
                   {myName} (Вы) ↔ {partnerName}
                 </span>
+
+                {partnerReview && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-600">
+                    ⭐ Надёжность {partnerName}: {partnerReview.score}/5
+                  </span>
+                )}
               </div>
 
               <p className="mt-0.5 text-xs text-dim sm:text-sm">
@@ -345,40 +372,76 @@ export function NegotiationCards({
 
         {/* Карточки участников */}
         <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-          <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wide text-blue-600">
-                Покупатель {side === "buyer" ? "· Вы" : ""}
-              </span>
-              <span className="text-xs text-dim">
-                {buyerProfile?.company || ""}
-              </span>
+          <div className="flex flex-col justify-between rounded-xl border border-blue-500/20 bg-blue-500/5 p-3.5">
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wide text-blue-600">
+                  Покупатель {side === "buyer" ? "· Вы" : ""}
+                </span>
+                <span className="text-xs text-dim">
+                  {buyerProfile?.company || ""}
+                </span>
+              </div>
+
+              <div className="mt-1 text-base font-bold text-ink">
+                {buyerName}
+              </div>
+              <div className="mt-0.5 truncate text-xs text-dim">
+                Заявка: {buyer.title}
+              </div>
             </div>
 
-            <div className="mt-1 text-base font-bold text-ink">
-              {buyerName}
-            </div>
-            <div className="mt-0.5 truncate text-xs text-dim">
-              Заявка: {buyer.title}
-            </div>
+            {side === "seller" && (
+              <div className="mt-2.5 flex items-center justify-between border-t border-blue-500/15 pt-2 text-xs">
+                <span className="text-dim">Индекс надёжности:</span>
+                {partnerReview ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 font-semibold text-emerald-600">
+                    ⭐ {partnerReview.score}/5 ({partnerReview.count}{" "}
+                    {partnerReview.count === 1 ? "сделка" : "сделок"})
+                  </span>
+                ) : (
+                  <span className="font-medium text-blue-600">
+                    Новый контрагент (нет замечаний)
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wide text-emerald-600">
-                Продавец {side === "seller" ? "· Вы" : ""}
-              </span>
-              <span className="text-xs text-dim">
-                {sellerProfile?.company || ""}
-              </span>
+          <div className="flex flex-col justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3.5">
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wide text-emerald-600">
+                  Продавец {side === "seller" ? "· Вы" : ""}
+                </span>
+                <span className="text-xs text-dim">
+                  {sellerProfile?.company || ""}
+                </span>
+              </div>
+
+              <div className="mt-1 text-base font-bold text-ink">
+                {sellerName}
+              </div>
+              <div className="mt-0.5 truncate text-xs text-dim">
+                Заявка: {seller.title}
+              </div>
             </div>
 
-            <div className="mt-1 text-base font-bold text-ink">
-              {sellerName}
-            </div>
-            <div className="mt-0.5 truncate text-xs text-dim">
-              Заявка: {seller.title}
-            </div>
+            {side === "buyer" && (
+              <div className="mt-2.5 flex items-center justify-between border-t border-emerald-500/15 pt-2 text-xs">
+                <span className="text-dim">Индекс надёжности:</span>
+                {partnerReview ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 font-semibold text-emerald-600">
+                    ⭐ {partnerReview.score}/5 ({partnerReview.count}{" "}
+                    {partnerReview.count === 1 ? "сделка" : "сделок"})
+                  </span>
+                ) : (
+                  <span className="font-medium text-emerald-600">
+                    Новый контрагент (нет замечаний)
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -469,7 +532,7 @@ export function NegotiationCards({
         </div>
       </section>
 
-      {/* Подробные карточки параметров */}
+      {/* Карточки параметров */}
       <div className="space-y-4">
         {snapshot.conditions.map((condition, index) => {
           const current =
@@ -503,7 +566,6 @@ export function NegotiationCards({
                 color.border,
               )}
             >
-              {/* Заголовок карточки */}
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
                 <div className="flex items-center gap-2">
                   <span
@@ -637,7 +699,7 @@ export function NegotiationCards({
                 )}
               </div>
 
-              {/* Подтверждение параметра */}
+              {/* Статус согласования */}
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3 pt-2">
                 <div className="text-xs sm:text-sm">
                   {isMyOk && isOtherOk ? (
@@ -690,7 +752,7 @@ export function NegotiationCards({
                 </div>
               </div>
 
-              {/* Форма изменения условия */}
+              {/* Форма изменения своего условия */}
               {current && (
                 <div className="mt-4 space-y-3 rounded-xl border border-dashed border-brand/40 bg-brand/5 p-4 text-xs sm:text-sm">
                   <div className="font-semibold text-ink">
@@ -781,7 +843,7 @@ export function NegotiationCards({
         })}
       </div>
 
-      {/* ИИ-сводка и лог согласования */}
+      {/* ИИ-сводка с советом по надёжности */}
       <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -805,6 +867,14 @@ export function NegotiationCards({
             Объяснить сделку
           </Button>
         </div>
+
+        {partnerReview && (
+          <div className="mt-3 flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2.5 text-xs text-emerald-700 dark:text-emerald-400">
+            <span className="font-bold">ИИ-совет по контрагенту:</span>
+            У партнёра «{partnerName}» подтверждённый рейтинг надёжности ({partnerReview.score}/5 по результатам {partnerReview.count}{" "}
+            {partnerReview.count === 1 ? "сделки" : "сделок"}). Рекомендуются гибкие условия и быстрое подписание.
+          </div>
+        )}
 
         {summary.data?.text && (
           <p className="mt-3 rounded-lg border border-brand/20 bg-brand/5 p-3 text-xs leading-relaxed text-dim sm:text-sm">
