@@ -1,11 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Download, FileCode2, FileText, Loader2, Trash2 } from "lucide-react";
+import {
+  CheckCircle2,
+  Download,
+  FileCode2,
+  FileText,
+  Loader2,
+  Star,
+  Trash2,
+} from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
-import { deleteDocument, listDocuments, type DocStatus, type DocumentRow } from "@/lib/api";
+import {
+  deleteDocument,
+  listDocuments,
+  type DocStatus,
+  type DocumentRow,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { PartnerReviewDialog } from "@/components/partner-review-dialog";
 
 const STATUS_STYLE: Record<DocStatus, string> = {
   Подписан: "bg-brand/10 text-brand",
@@ -14,7 +29,9 @@ const STATUS_STYLE: Record<DocStatus, string> = {
 };
 
 function download(doc: DocumentRow) {
-  const blob = new Blob([doc.body ?? doc.title], { type: "text/plain;charset=utf-8" });
+  const blob = new Blob([doc.body ?? doc.title], {
+    type: "text/plain;charset=utf-8",
+  });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -65,12 +82,18 @@ function exportTo1C(doc: DocumentRow) {
   a.download = `1C_Заказ_${docNum}.xml`;
   a.click();
   URL.revokeObjectURL(url);
-  toast.success(`Пакет обмена CommerceML 2.0 для 1С:Предприятие сформирован (${docNum})`);
+  toast.success(
+    `Пакет обмена CommerceML 2.0 для 1С:Предприятие сформирован (${docNum})`,
+  );
 }
 
 export function ProfileDocuments() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const [reviewTarget, setReviewTarget] = useState<{
+    partnerName: string;
+    docTitle: string;
+  } | null>(null);
 
   const docsQuery = useQuery({
     queryKey: ["documents", user?.id],
@@ -90,10 +113,10 @@ export function ProfileDocuments() {
 
   return (
     <section className="glass-panel overflow-hidden rounded-2xl">
-      {/* Баннер интеграции с 1С для конкурса */}
+      {/* Баннер интеграции с 1С */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-gradient-to-r from-amber-500/10 via-background to-card p-4 sm:px-6">
         <div className="flex items-center gap-2.5">
-          <span className="grid size-8 place-items-center rounded-lg bg-amber-500/15 text-amber-600 font-bold text-xs">
+          <span className="grid size-8 place-items-center rounded-lg bg-amber-500/15 text-xs font-bold text-amber-600">
             1С
           </span>
           <div>
@@ -124,7 +147,10 @@ export function ProfileDocuments() {
           {docs.map((d) => {
             const utNum = `УТ-${d.$id.slice(0, 6).toUpperCase()}`;
             return (
-              <li key={d.$id} className="flex flex-wrap items-center gap-4 px-6 py-4">
+              <li
+                key={d.$id}
+                className="flex flex-wrap items-center gap-4 px-6 py-4"
+              >
                 <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-foreground/5 text-dim">
                   <FileText className="size-4.5" />
                 </span>
@@ -135,26 +161,53 @@ export function ProfileDocuments() {
                       1С: {utNum}
                     </span>
                   </div>
-                  <div className="text-xs text-dim mt-0.5">
+                  <div className="mt-0.5 text-xs text-dim">
                     {d.counterparty} ·{" "}
-                    {new Date(d.createdAt ?? d.$createdAt).toLocaleDateString("ru-RU")}
+                    {new Date(d.createdAt ?? d.$createdAt).toLocaleDateString(
+                      "ru-RU",
+                    )}
                   </div>
                 </div>
-                <span className={cn("rounded-full px-3 py-1 text-xs", STATUS_STYLE[d.status])}>
+                <span
+                  className={cn(
+                    "rounded-full px-3 py-1 text-xs",
+                    STATUS_STYLE[d.status],
+                  )}
+                >
                   {d.status}
                 </span>
 
                 <Button
                   variant="outline"
                   size="sm"
-                  className="rounded-full text-xs gap-1.5 border-amber-500/30 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10"
+                  className="gap-1.5 rounded-full border-emerald-500/30 text-xs text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-400"
+                  onClick={() =>
+                    setReviewTarget({
+                      partnerName: d.counterparty || "Контрагент B2B",
+                      docTitle: d.title,
+                    })
+                  }
+                >
+                  <Star className="size-3.5 fill-amber-400 text-amber-400" />
+                  Оценить партнёра
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 rounded-full border-amber-500/30 text-xs text-amber-700 hover:bg-amber-500/10 dark:text-amber-400"
                   onClick={() => exportTo1C(d)}
                 >
                   <FileCode2 className="size-3.5" />
                   Пакет 1С (XML)
                 </Button>
 
-                <Button variant="outline" size="sm" className="rounded-full text-xs gap-1.5" onClick={() => download(d)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 rounded-full text-xs"
+                  onClick={() => download(d)}
+                >
                   <Download className="size-3.5" />
                   Скачать
                 </Button>
@@ -171,6 +224,15 @@ export function ProfileDocuments() {
             );
           })}
         </ul>
+      )}
+
+      {reviewTarget && (
+        <PartnerReviewDialog
+          open={!!reviewTarget}
+          onOpenChange={(open) => !open && setReviewTarget(null)}
+          partnerName={reviewTarget.partnerName}
+          docTitle={reviewTarget.docTitle}
+        />
       )}
     </section>
   );
