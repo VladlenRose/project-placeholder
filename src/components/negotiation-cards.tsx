@@ -175,6 +175,7 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
     );
   }
 
+
   const beginEdit = (key: ParamKey) => {
     const p = snapshot[side][key];
     setEdit({
