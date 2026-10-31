@@ -134,7 +134,6 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
       client.setQueryData(queryKey, saved);
       setConfirmation(null);
       setEdit(null);
-      summary.reset();
       toast.success("Отправлено второй стороне");
     },
     onError: (error) => {
@@ -206,7 +205,6 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
       values: { min: p.min, max: p.max, unit: p.unit, value: p.value },
       preview: null,
     });
-    summary.reset();
   };
 
   const simulate = () => {
