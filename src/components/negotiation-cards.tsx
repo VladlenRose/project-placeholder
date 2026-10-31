@@ -50,8 +50,10 @@ const PARAM_COLORS: Record<ParamKey, { badge: string; border: string }> = {
   qty: { badge: "bg-blue-500/10 text-blue-600 border-blue-500/20", border: "border-blue-500/20" },
   price: { badge: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20", border: "border-emerald-500/20" },
   payment: { badge: "bg-violet-500/10 text-violet-600 border-violet-500/20", border: "border-violet-500/20" },
-  delivery: { badge: "bg-amber-500/10 text-amber-600 border-amber-500/20", border: "border-amber-500/20" },
+  basis: { badge: "bg-amber-500/10 text-amber-600 border-amber-500/20", border: "border-amber-500/20" },
   term: { badge: "bg-rose-500/10 text-rose-600 border-rose-500/20", border: "border-rose-500/20" },
+  warranty: { badge: "bg-teal-500/10 text-teal-600 border-teal-500/20", border: "border-teal-500/20" },
+  regularity: { badge: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20", border: "border-indigo-500/20" },
 };
 
 export function NegotiationCards({ my, other }: { my: TradeRequest; other: TradeRequest }) {
@@ -126,32 +128,34 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
     },
   });
 
-  const summary = useMutation({
-    mutationFn: async () => {
+  const summary = useQuery({
+    queryKey: ["negotiation-summary", row?.id, row?.version],
+    enabled: false,
+    queryFn: async () => {
       if (!snapshot) return { text: "" };
       return explain({
         data: {
-          title: `${buyer.title} / ${seller.title}`,
-          agreed: humansAgreed(snapshot),
-          terms: snapshot.conditions.flatMap((c) =>
-            c.term ? [{ label: LABELS[c.key], value: c.term.value, note: c.term.note }] : [],
-          ),
+          agreement: agreementPercent(snapshot),
+          conditions: snapshot.conditions.map((c) => ({
+            label: LABELS[c.key],
+            status: c.term?.status ?? "pending",
+            value: c.term?.value ?? "—",
+          })),
         },
       });
     },
-    onError: () => toast.error("ИИ сейчас недоступен; условия сохранены."),
   });
 
-  const draft = useMutation({
-    mutationFn: () => {
+  const makeContract = useMutation({
+    mutationFn: async () => {
       if (!row) throw new Error("Переговоры недоступны.");
       return contract({ data: { id: row.id, version: row.version } });
     },
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: ["documents"] });
-      await navigate({ to: "/dashboard", search: { tab: "documents" } });
+    onSuccess: (res) => {
+      toast.success("Договор успешно сформирован!");
+      navigate({ to: "/dashboard", search: { tab: "documents" } });
     },
-    onError: (error) => toast.error(error.message),
+    onError: (err) => toast.error(err.message),
   });
 
   if (query.isPending) {
@@ -166,7 +170,11 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
   if (query.isError || !row || !snapshot) {
     return (
       <div className="space-y-3 p-6 text-sm text-destructive">
-        <p>Не удалось открыть переговоры. Проверьте вход и попробуйте снова.</p>
+        <p>
+          {query.error
+            ? (query.error as Error).message
+            : "Не удалось открыть переговоры. Проверьте вход и попробуйте снова."}
+        </p>
         <Button variant="outline" onClick={() => void query.refetch()}>
           <RefreshCw className="size-4" />
           Повторить
@@ -174,7 +182,6 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
       </div>
     );
   }
-
 
   const beginEdit = (key: ParamKey) => {
     const p = snapshot[side][key];
@@ -189,25 +196,17 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
 
   const simulate = () => {
     if (!edit) return;
-    try {
-      setEdit({ ...edit, preview: proposeCondition(snapshot, side, edit.key, edit.values) });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Проверьте значения.");
-    }
+    const preview = proposeCondition(snapshot, side, edit.key, edit.values);
+    setEdit({ ...edit, preview });
   };
 
-  const confirmationCondition = (
-    confirmation?.action === "propose" ? edit?.preview : snapshot
-  )?.conditions.find((c) => c.key === confirmation?.key);
-
-  const stale = !!edit && edit.version !== row.version;
-  const lastVersion = row.version;
-
-  // Проверка: отметил ли текущий пользователь все условия
-  const allMyChecked = snapshot.conditions.every((c) =>
+  const allAgreed = humansAgreed(snapshot);
+  const myCheckedAll = snapshot.conditions.every((c) =>
     side === "buyer" ? c.buyerAccepted : c.sellerAccepted,
   );
-  const fullyAgreed = humansAgreed(snapshot);
+  const otherCheckedAll = snapshot.conditions.every((c) =>
+    side === "buyer" ? c.sellerAccepted : c.buyerAccepted,
+  );
 
   return (
     <div className="flex-1 space-y-6 p-4 sm:p-6 text-base">
@@ -294,7 +293,10 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
           const p = snapshot[side][c.key];
           const range = ["qty", "price", "term"].includes(c.key);
           const myAccepted = side === "buyer" ? c.buyerAccepted : c.sellerAccepted;
-          const color = PARAM_COLORS[c.key];
+          const color = (PARAM_COLORS as Record<string, { badge: string; border: string }>)[c.key] ?? {
+            badge: "bg-muted text-foreground border-border",
+            border: "border-border",
+          };
 
           return (
             <article
@@ -347,186 +349,118 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
               </div>
 
               {/* Итог согласования ботов */}
-              <div className="my-4 rounded-xl border border-brand/20 bg-brand/5 p-4">
-                <div className="text-xs uppercase tracking-wider text-brand font-semibold">
-                  {current?.preview ? "Предварительный результат" : "Итог торга ботов"}
+              <div className="mt-4 rounded-xl border border-border/80 bg-foreground/[0.015] p-3.5">
+                <div className="text-xs font-medium text-dim">Предложение ботов</div>
+                <div className="mt-1 text-base sm:text-lg font-bold text-ink">
+                  {shown.term?.value ?? "Условие пока не выработано"}
                 </div>
-                <p className="mt-1 text-lg sm:text-xl font-bold text-ink">
-                  {shown.term?.value ?? "Не задано"}
-                </p>
-                <p className="mt-1 text-xs sm:text-sm text-dim">
-                  {shown.term?.note ?? "Условия отсутствуют в обеих заявках"}
-                </p>
+                {shown.term?.rationale && (
+                  <p className="mt-1 text-xs sm:text-sm text-dim leading-relaxed">
+                    {shown.term.rationale}
+                  </p>
+                )}
               </div>
 
-              {/* 4. Разговор ботов (свернут по умолчанию) */}
-              <details className="mb-4 rounded-xl border border-border bg-foreground/[0.02] p-3 text-sm">
-                <summary className="flex cursor-pointer items-center justify-between font-medium text-ink hover:text-brand">
-                  <span className="flex items-center gap-2">
-                    <Bot className="size-4 text-brand" />
-                    К чему пришли боты:{" "}
-                    <span className="text-dim font-normal">
-                      «{shown.term?.value ?? "нет консенсуса"}»
-                    </span>
-                  </span>
-                  <span className="flex items-center gap-1 text-xs text-brand">
-                    Показать диалог <ChevronDown className="size-3.5" />
-                  </span>
-                </summary>
-                <div className="mt-3 space-y-2 border-t border-border/80 pt-3 text-xs sm:text-sm leading-relaxed">
-                  {shown.log.length === 0 && (
-                    <p className="text-dim">{shown.term?.note ?? "Бот не предложил условий."}</p>
-                  )}
-                  {shown.log.map((line, i) => {
-                    const mine = line.side === side;
-                    const sys = line.side === "system";
-                    return (
-                      <div
-                        key={i}
-                        className={cn(
-                          "flex",
-                          sys ? "justify-center" : mine ? "justify-end" : "justify-start",
-                        )}
-                      >
-                        <p
-                          className={cn(
-                            "max-w-[90%] rounded-2xl px-3 py-2",
-                            sys
-                              ? "border border-gold/50 bg-gold/10 text-ink"
-                              : mine
-                                ? "bg-brand text-brand-foreground"
-                                : "border border-border bg-card text-ink",
-                          )}
-                        >
-                          <span className="block text-xs font-semibold opacity-80">
-                            {sys ? "Результат" : mine ? "Мой бот" : "Бот второй стороны"}
-                          </span>
-                          {line.text}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </details>
-
-              {/* Статус подтверждения */}
-              <div className="mb-3 flex flex-wrap gap-2 text-xs">
-                {(
-                  [
-                    ["Покупатель", c.buyerAccepted, side === "buyer"],
-                    ["Продавец", c.sellerAccepted, side === "seller"],
-                  ] as const
-                ).map(([who, ok, me]) => (
-                  <span
-                    key={who}
-                    className={cn(
-                      "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 font-medium",
-                      ok
-                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600"
-                        : "border-amber-500/30 bg-amber-500/10 text-amber-600",
-                    )}
-                  >
-                    {ok ? <Check className="size-3" /> : "⏳"} {who}
-                    {me ? " (вы)" : ""}: {ok ? "подтвердил" : "не подтвердил"}
-                  </span>
-                ))}
-              </div>
-
-              {/* Управление пунктом */}
-              {current ? (
-                <div className="space-y-3 border-t border-border pt-3">
-                  {stale && (
-                    <p role="alert" className="text-xs text-destructive">
-                      Другая сторона изменила условия. Закройте черновик и проверьте новую версию.
-                    </p>
-                  )}
-                  {range ? (
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      {(["min", "max", "unit"] as const).map((field) => (
-                        <label key={field} className="min-w-0 text-xs text-dim">
-                          {field === "min" ? "От" : field === "max" ? "До" : "Единица"}
-                          <Input
-                            type={field === "unit" ? "text" : "number"}
-                            min={0}
-                            step="any"
-                            value={current.values[field]}
-                            onChange={(e) =>
-                              setEdit({
-                                ...current,
-                                values: { ...current.values, [field]: e.target.value },
-                                preview: null,
-                              })
-                            }
-                          />
-                        </label>
-                      ))}
-                    </div>
+              {/* Действия участника по этому пункту */}
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 pt-2">
+                <div className="text-xs sm:text-sm text-dim">
+                  Статус:{" "}
+                  {myAccepted ? (
+                    <span className="font-semibold text-emerald-600">✓ Вы приняли пункт</span>
                   ) : (
-                    <label className="block text-xs text-dim">
-                      Ваше условие
-                      <Input
-                        maxLength={500}
-                        value={current.values.value}
-                        onChange={(e) =>
-                          setEdit({
-                            ...current,
-                            values: { ...current.values, value: e.target.value },
-                            preview: null,
-                          })
-                        }
-                      />
-                    </label>
+                    <span className="font-medium text-amber-600">Ожидает вашего подтверждения</span>
                   )}
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" size="sm" disabled={stale} onClick={simulate}>
-                      <Bot className="size-4" />
-                      Пересчитать пункт
-                    </Button>
-                    {current.preview && (
-                      <Button
-                        size="sm"
-                        disabled={stale || send.isPending}
-                        onClick={() =>
-                          setConfirmation({
-                            key: c.key,
-                            version: current.version,
-                            action: "propose",
-                          })
-                        }
-                      >
-                        <Send className="size-4" />
-                        Отправить предложение
-                      </Button>
-                    )}
-                    <Button variant="ghost" size="sm" onClick={() => setEdit(null)}>
-                      Отмена
-                    </Button>
-                  </div>
                 </div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={send.isPending || p.ignore}
-                    onClick={() => beginEdit(c.key)}
-                  >
-                    <Pencil className="size-3.5" />
-                    Изменить условие
-                  </Button>
-                  {c.term && (
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {!myAccepted && (
                     <Button
-                      variant={myAccepted ? "ghost" : "default"}
                       size="sm"
-                      disabled={myAccepted || send.isPending}
+                      className="bg-emerald-600 text-white hover:bg-emerald-700"
                       onClick={() =>
                         setConfirmation({ key: c.key, version: row.version, action: "accept" })
                       }
                     >
                       <Check className="size-4" />
-                      {myAccepted ? "Вы приняли пункт" : "Согласен с условием"}
+                      Принять пункт
                     </Button>
                   )}
+
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => (current ? setEdit(null) : beginEdit(c.key))}
+                  >
+                    <Pencil className="size-3.5" />
+                    {current ? "Отмена" : "Изменить свое"}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Форма изменения своего условия */}
+              {current && (
+                <div className="mt-4 space-y-3 rounded-xl border border-dashed border-brand/40 bg-brand/5 p-4 text-xs sm:text-sm">
+                  <div className="font-semibold text-ink">
+                    Ваше новое условие для пересчета торга:
+                  </div>
+                  {range ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs text-dim">От</label>
+                        <Input
+                          value={current.values.min ?? ""}
+                          onChange={(e) =>
+                            setEdit({
+                              ...current,
+                              values: { ...current.values, min: e.target.value },
+                            })
+                          }
+                          placeholder={p.min || "мин"}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-dim">До</label>
+                        <Input
+                          value={current.values.max ?? ""}
+                          onChange={(e) =>
+                            setEdit({
+                              ...current,
+                              values: { ...current.values, max: e.target.value },
+                            })
+                          }
+                          placeholder={p.max || "макс"}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <Input
+                        value={current.values.value ?? ""}
+                        onChange={(e) =>
+                          setEdit({
+                            ...current,
+                            values: { ...current.values, value: e.target.value },
+                          })
+                        }
+                        placeholder={p.value || "Значение"}
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <Button size="sm" variant="secondary" onClick={simulate}>
+                      Пересчитать с ботом
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        setConfirmation({ key: c.key, version: current.version, action: "propose" })
+                      }
+                    >
+                      <Send className="size-3.5" />
+                      Отправить встречное
+                    </Button>
+                  </div>
                 </div>
               )}
             </article>
@@ -534,150 +468,154 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
         })}
       </div>
 
-      {/* 5. Итоговый блок: Кнопка "Предложить условие" и "Составить договор" */}
-      <section className="rounded-2xl border-2 border-brand/30 bg-card p-5 text-center shadow-md">
-        {!allMyChecked ? (
-          <div className="text-sm text-dim">
-            Чтобы отправить финальное согласие, подтвердите каждый из параметров выше.
+      {/* 4. Краткий пересказ ИИ и аккордеон с ботами */}
+      <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Bot className="size-5 text-brand" />
+            <h3 className="font-semibold text-ink text-sm sm:text-base">
+              Что решили боты сторон (ИИ-сводка)
+            </h3>
           </div>
-        ) : fullyAgreed ? (
-          <div className="space-y-3">
-            <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-4 py-1.5 text-sm font-semibold text-emerald-600">
-              <CheckCircle2 className="size-4" /> Все условия согласованы обеими сторонами!
-            </div>
-            <div>
-              <Button
-                variant="hero"
-                size="lg"
-                className="h-12 px-8 text-base font-semibold"
-                disabled={draft.isPending}
-                onClick={() => draft.mutate()}
-              >
-                {draft.isPending && <Loader2 className="size-5 animate-spin" />}
-                СОСТАВИТЬ ДОГОВОР
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <div className="text-sm text-ink font-medium">
-              Вы подтвердили все условия со своей стороны. Ожидаем подтверждения второй стороны.
-            </div>
-            <Button
-              variant="default"
-              size="lg"
-              className="h-11 px-6 font-semibold"
-              onClick={() => toast.success("Ваши условия уже подтверждены и отправлены партнеру")}
-            >
-              <Check className="size-4" /> Условия согласованы вами
-            </Button>
-          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={summary.isFetching}
+            onClick={() => void summary.refetch()}
+          >
+            {summary.isFetching ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="size-3.5" />
+            )}
+            Объяснить сделку
+          </Button>
+        </div>
+
+        {summary.data?.text && (
+          <p className="mt-3 text-xs sm:text-sm text-dim leading-relaxed bg-brand/5 border border-brand/20 p-3 rounded-lg">
+            {summary.data.text}
+          </p>
         )}
+
+        {/* Раскрывающийся лог диалога ботов */}
+        <details className="group mt-3 border-t border-border/80 pt-3">
+          <summary className="flex cursor-pointer list-none items-center justify-between text-xs sm:text-sm font-medium text-dim hover:text-ink">
+            <span>Показать полный лог согласования условий ботами</span>
+            <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="mt-3 space-y-2 text-xs sm:text-sm text-dim">
+            {snapshot.conditions.map((c) => (
+              <div key={c.key} className="rounded-lg bg-foreground/[0.02] p-2.5">
+                <span className="font-semibold text-ink">{LABELS[c.key]}:</span>{" "}
+                {c.term?.rationale || "Условие принято автоматически на основе диапазонов заявок."}
+              </div>
+            ))}
+          </div>
+        </details>
       </section>
 
-      {/* История и ИИ-резюме */}
-      <div className="flex flex-wrap gap-2 pt-2">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={summary.isPending}
-          onClick={() => summary.mutate()}
-        >
-          {summary.isPending ? <Loader2 className="size-4 animate-spin" /> : <Bot className="size-4" />}
-          Пересказать условия
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => setShowHistory(!showHistory)}>
-          <History className="size-4" />
-          История версий
-        </Button>
-      </div>
+      {/* 5. Финальный блок: Предложить условия / Оформить договор */}
+      <section className="sticky bottom-4 z-20 rounded-2xl border-2 border-brand bg-card p-5 shadow-lg">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-base font-bold text-ink">Итоговое согласование сделки</div>
+            <div className="text-xs sm:text-sm text-dim">
+              {allAgreed
+                ? "Обе стороны подтвердили все параметры. Можно оформлять официальный договор!"
+                : myCheckedAll
+                ? "Вы приняли все параметры! Ожидаем подтверждения от второй стороны."
+                : "Отметьте каждый параметр выше, чтобы сформировать финальное предложение."}
+            </div>
+          </div>
 
-      {summary.data?.text && (
-        <p className="border-l-2 border-brand pl-4 text-sm leading-relaxed text-ink">
-          {summary.data.text}
-        </p>
-      )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowHistory((v) => !v)}
+              className="text-xs"
+            >
+              <History className="size-3.5" />
+              История ({row.version})
+            </Button>
 
-      {showHistory && (
-        <div className="space-y-3 border-t border-border pt-4 text-xs text-dim">
-          {history.isPending
-            ? "Загружаем историю…"
-            : history.isError
-              ? "Не удалось загрузить историю."
-              : history.data?.map((v) => {
-                  const old = v.snapshot as unknown as NegotiationSnapshot;
-                  const condition = old.conditions.find((c) => c.key === v.param_key);
-                  return (
-                    <details key={v.id}>
-                      <summary className="cursor-pointer">
-                        Версия {v.version} · {v.actor_id === my.owner_id ? "Вы" : "Вторая сторона"} ·{" "}
-                        {v.action === "start"
-                          ? "Начало торга"
-                          : v.action === "propose"
-                            ? "Встречное условие"
-                            : "Подтверждение"}
-                        {v.param_key ? ` · ${LABELS[v.param_key as ParamKey]}` : ""}
-                      </summary>
-                      <div className="mt-2 space-y-1 pl-3">
-                        {(condition ? [condition] : old.conditions).map((c) => (
-                          <p key={c.key}>
-                            {LABELS[c.key]}: {c.term?.value ?? "Не задано"}
-                          </p>
-                        ))}
-                      </div>
-                    </details>
-                  );
-                })}
+            {allAgreed ? (
+              <Button
+                size="lg"
+                className="bg-emerald-600 text-white hover:bg-emerald-700 shadow-md font-semibold text-base"
+                disabled={makeContract.isPending}
+                onClick={() => makeContract.mutate()}
+              >
+                {makeContract.isPending ? (
+                  <Loader2 className="size-5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="size-5" />
+                )}
+                Оформить договор
+              </Button>
+            ) : (
+              <Button
+                size="lg"
+                disabled={!myCheckedAll || send.isPending}
+                className={cn(
+                  myCheckedAll
+                    ? "bg-brand text-brand-foreground shadow-md font-semibold"
+                    : "opacity-60",
+                )}
+                onClick={() => toast.success("Все условия подтверждены с вашей стороны!")}
+              >
+                {myCheckedAll ? "✓ Все условия предложены" : "Предложить условия сделки"}
+              </Button>
+            )}
+          </div>
         </div>
-      )}
+      </section>
 
-      {/* Диалог подтверждения */}
-      <Dialog
-        open={!!confirmation}
-        onOpenChange={(isOpen) => {
-          if (!isOpen && !send.isPending) setConfirmation(null);
-        }}
-      >
+      {/* Диалог истории версий */}
+      <Dialog open={showHistory} onOpenChange={setShowHistory}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>История изменений торга</DialogTitle>
+            <DialogDescription>Все версии согласования между сторонами.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-xs sm:text-sm">
+            {history.data?.map((h) => (
+              <div key={h.id} className="rounded-lg border p-3">
+                <div className="flex items-center justify-between font-medium">
+                  <span>Версия #{h.version}</span>
+                  <span className="text-dim">{new Date(h.created_at).toLocaleString("ru-RU")}</span>
+                </div>
+                <div className="text-dim mt-1">
+                  Действие: {h.action} {h.param_key ? `(${LABELS[h.param_key as ParamKey]})` : ""}
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Диалог подтверждения отправки изменения */}
+      <Dialog open={!!confirmation} onOpenChange={(open) => !open && setConfirmation(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              {confirmation?.action === "propose"
-                ? "Отправить встречное условие?"
-                : "Подтвердить условие?"}
-            </DialogTitle>
+            <DialogTitle>Подтверждение условия</DialogTitle>
             <DialogDescription>
-              {confirmation ? LABELS[confirmation.key] : ""} · Версия {confirmation?.version}.
-              Получатель: владелец заявки «{other.title}».
+              {confirmation?.action === "accept"
+                ? `Вы соглашаетесь с условием по параметру «${
+                    confirmation?.key ? LABELS[confirmation.key] : ""
+                  }». Вторая сторона увидит ваш выбор.`
+                : `Отправить новое условие по параметру «${
+                    confirmation?.key ? LABELS[confirmation.key] : ""
+                  }» на согласование?`}
             </DialogDescription>
           </DialogHeader>
-          <p className="break-words font-semibold text-ink">
-            {confirmationCondition?.term?.value ?? ""}
-          </p>
-          {confirmation?.action === "propose" && edit && (
-            <p className="text-sm text-dim">
-              Ваше условие:{" "}
-              {parameterText(edit.values, ["qty", "price", "term"].includes(edit.key))}
-            </p>
-          )}
-          {confirmation?.version !== lastVersion && (
-            <p role="alert" className="text-sm text-destructive">
-              Условия изменились. Проверьте новую версию перед отправкой.
-            </p>
-          )}
           <DialogFooter>
-            <Button variant="outline" disabled={send.isPending} onClick={() => setConfirmation(null)}>
-              Вернуться
+            <Button variant="outline" onClick={() => setConfirmation(null)}>
+              Отмена
             </Button>
-            <Button
-              disabled={send.isPending || confirmation?.version !== lastVersion}
-              onClick={() => send.mutate()}
-            >
-              {send.isPending ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Send className="size-4" />
-              )}
-              Подтвердить и отправить
+            <Button disabled={send.isPending} onClick={() => send.mutate()}>
+              {send.isPending ? <Loader2 className="size-4 animate-spin" /> : "Подтвердить"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -686,8 +624,11 @@ export function NegotiationCards({ my, other }: { my: TradeRequest; other: Trade
   );
 }
 
-// 3. Форматирование одинаковых чисел: 500-500 превращается в просто 500
-function parameterText(p: ConditionValues & { ignore?: boolean }, range: boolean) {
+function parameterText(
+  p: (ConditionValues & { ignore?: boolean }) | undefined | null,
+  range: boolean,
+) {
+  if (!p) return "—";
   if (p.ignore) return "Неважно";
   if (!range) return p.value || "Не задано";
 
