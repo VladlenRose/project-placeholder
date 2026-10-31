@@ -488,6 +488,10 @@ export type Database = {
         Returns: string
       }
       delete_catalog_product: { Args: { _id: string }; Returns: string }
+      finalize_request_negotiation: {
+        Args: { _actor: string; _expected: number; _id: string }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

@@ -71,6 +71,13 @@
       "when": 1793402906508,
       "tag": "0009_apply_pending_marker",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793407313657,
+      "tag": "0010_negotiation_final_proposals",
+      "breakpoints": true
     }
   ]
 }
